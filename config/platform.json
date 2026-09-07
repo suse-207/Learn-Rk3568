@@ -1,0 +1,12 @@
+{
+  "listen_ip": "0.0.0.0",
+  "listen_port": 13400,
+  "backlog": 128,
+  "max_events": 1024,
+  "download_dir": "/tmp",
+  "announcement_addr": "255.255.255.255",
+  "announcement_interval_ms": 5000,
+  "initial_inactivity_ms": 2000,
+  "general_inactivity_ms": 5000,
+  "alive_check_timeout_ms": 3000
+}
