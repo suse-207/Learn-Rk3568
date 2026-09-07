@@ -1,6 +1,9 @@
 # rk3568-automotive-platform
 
-车载通信与 OTA 平台（面试证据项目）。
+车载通信与 OTA 平台。
+
+
+主要是个人学习：https://github.com/AUTOSAR/capi 
 
 ## 当前里程碑
 
@@ -30,8 +33,6 @@ VSOMEIP_CONFIGURATION=config/vsomeip.json ./build/apps/someip_client
 ./build/apps/ota_demo --fail-boot     # 模拟 B 启动失败并回滚 A
 ```
 
-> 本机默认 `/usr/bin/cmake` 是 3.10，无法构建本工程。请使用
-> `/home/topeet/Desktop/cmake-3.28.6-linux-x86_64/bin/cmake`，或把该目录加入 `PATH`。
 
 vsomeip3 已源码 vendor 到 `third_party/vsomeip`，由本工程 `CMakeLists.txt`
 通过 `add_subdirectory(third_party/vsomeip EXCLUDE_FROM_ALL)` 直接编译，
