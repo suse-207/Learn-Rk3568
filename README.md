@@ -1,9 +1,6 @@
 # rk3568-automotive-platform
 
-车载通信与 OTA 平台。
-
-
-主要是个人学习：https://github.com/AUTOSAR/capi 
+车载通信与 OTA 平台（面试证据项目）。
 
 ## 当前里程碑
 
@@ -33,6 +30,8 @@ VSOMEIP_CONFIGURATION=config/vsomeip.json ./build/apps/someip_client
 ./build/apps/ota_demo --fail-boot     # 模拟 B 启动失败并回滚 A
 ```
 
+> 本机默认 `/usr/bin/cmake` 是 3.10，无法构建本工程。请使用
+> `/home/topeet/Desktop/cmake-3.28.6-linux-x86_64/bin/cmake`，或把该目录加入 `PATH`。
 
 vsomeip3 已源码 vendor 到 `third_party/vsomeip`，由本工程 `CMakeLists.txt`
 通过 `add_subdirectory(third_party/vsomeip EXCLUDE_FROM_ALL)` 直接编译，
@@ -40,20 +39,24 @@ vsomeip3 已源码 vendor 到 `third_party/vsomeip`，由本工程 `CMakeLists.t
 
 ### CAPI isoft-doip + isoft-uds 移植版
 
-`port/` 是把 CAPI 的 `isoft-doip` 与 `isoft-uds` 原库移植到本工程的轻量兼容层：
+已将 CAPI 源码按模块直接并入工程，不再保留独立的 `port/` 目录：
 
-- 不复用整套 NAI，只实现其实际调用的 `nai_*`/事件循环子集（`port/include/nai`、`port/src/*`）；
+- `src/doip/capi/isoft-doip`：CAPI DoIP Server
+- `src/uds/capi/isoft-uds`：CAPI UDS DCM
+- `src/common/capi`：core-types / common / diag-common / serialize
+- `src/common/compat`：最小 NAI / naicpp / ara-log / thread pool 兼容层
+
+- 不复用整套 NAI，只实现其实际调用的 `nai_*`/事件循环子集；
 - `ara/core` 直接复用 CAPI `core-types`；
 - `ara/log` 提供最小实现，可独立运行；
-- 上游 CAPI 源码已整体移入 `port/upstream/capi`，作为 `port` 模块的一部分直接编译，不再通过 `third_party/capi` 引用。
 
 ```bash
 # 构建
-cmake -B build-port
-cmake --build build-port -j4
+cmake -S . -B build
+cmake --build build --target capi_diag_server -- -j4
 
 # 运行 DoIP(13400) + UDS 服务
-./build-port/apps/capi_diag_server
+./build/apps/capi_diag_server
 
 # 验证
 python3 tools/doip_discovery_client.py 127.0.0.1 13400
@@ -62,6 +65,12 @@ python3 tools/doip_uds_client.py 127.0.0.1 13400
 
 当前 demo 已跑通：UDP 车辆发现、Entity/PowerMode、TCP Routing Activation、
 Alive Check、UDS 0x3E、0x10 会话切换；0x22 等服务需继续注册 DCM 实例配置。
+
+### 自研 DoIP/UDS 异步 dispatch
+
+自研 `doip_server` 的网络线程只负责 epoll 收包、DoIP 帧重组和回包；
+UDS 请求通过 `UdsDispatcher::Submit` 投递到 worker 线程处理，处理结果再经
+`EpollLoop::post` 回到网络线程发送。这样长耗时的诊断服务不会阻塞 epoll loop。
 
 ## DoIP 模块
 
@@ -86,4 +95,3 @@ src/doip/
 0x8001 Diagnostic Message
 0x8003 Diagnostic Message Negative ACK
 ```
-# Learn-Rk3568

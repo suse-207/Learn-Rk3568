@@ -1,5 +1,8 @@
 #include "uds/dispatcher.h"
 
+#include <condition_variable>
+#include <mutex>
+#include <thread>
 #include <utility>
 
 #include "common/log/log.h"
@@ -21,9 +24,68 @@ UdsDispatcher::UdsDispatcher() {
         [this](int fd, const UdsRequest& r) { return handle_transfer_data(fd, r); };
     handlers_[kSidRequestTransferExit] =
         [this](int fd, const UdsRequest& r) { return handle_request_transfer_exit(fd, r); };
+
+    constexpr std::size_t kWorkerCount = 4;
+    workers_.reserve(kWorkerCount);
+    for (std::size_t i = 0; i < kWorkerCount; ++i) {
+        workers_.emplace_back([this]() { worker_loop(); });
+    }
 }
 
-std::vector<std::uint8_t> UdsDispatcher::Handle(int fd, const std::uint8_t* data, std::size_t len) {
+UdsDispatcher::~UdsDispatcher() {
+    {
+        std::lock_guard<std::mutex> lock(task_mutex_);
+        running_.store(false);
+    }
+    task_cv_.notify_all();
+    for (auto& worker : workers_) {
+        if (worker.joinable()) {
+            worker.join();
+        }
+    }
+    workers_.clear();
+}
+
+void UdsDispatcher::Submit(int fd, const std::uint8_t* data, std::size_t len,
+                           ResponseHandler handler) {
+    if (data == nullptr || len == 0 || !handler) {
+        return;
+    }
+
+    Task task;
+    task.fd = fd;
+    task.request.assign(data, data + len);
+    task.handler = std::move(handler);
+
+    {
+        std::lock_guard<std::mutex> lock(task_mutex_);
+        if (!running_.load()) {
+            return;
+        }
+        tasks_.push_back(std::move(task));
+    }
+    task_cv_.notify_one();
+}
+
+void UdsDispatcher::worker_loop() {
+    while (true) {
+        Task task;
+        {
+            std::unique_lock<std::mutex> lock(task_mutex_);
+            task_cv_.wait(lock, [this]() { return !running_.load() || !tasks_.empty(); });
+            if (!running_.load() && tasks_.empty()) {
+                return;
+            }
+            task = std::move(tasks_.front());
+            tasks_.pop_front();
+        }
+
+        std::vector<std::uint8_t> response = process(task.fd, task.request.data(), task.request.size());
+        task.handler(std::move(response));
+    }
+}
+
+std::vector<std::uint8_t> UdsDispatcher::process(int fd, const std::uint8_t* data, std::size_t len) {
     if (data == nullptr || len == 0) {
         return {};
     }
@@ -33,12 +95,15 @@ std::vector<std::uint8_t> UdsDispatcher::Handle(int fd, const std::uint8_t* data
     req.params.assign(data + 1, data + len);
 
     UdsResponse resp;
-    const auto it = handlers_.find(req.sid);
-    if (it == handlers_.end()) {
-        resp.negative = true;
-        resp.nrc = kNrcServiceNotSupported;
-    } else {
-        resp = it->second(fd, req);
+    {
+        std::lock_guard<std::mutex> lock(state_mutex_);
+        const auto it = handlers_.find(req.sid);
+        if (it == handlers_.end()) {
+            resp.negative = true;
+            resp.nrc = kNrcServiceNotSupported;
+        } else {
+            resp = it->second(fd, req);
+        }
     }
 
     std::vector<std::uint8_t> out;

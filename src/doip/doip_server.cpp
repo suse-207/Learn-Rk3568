@@ -299,20 +299,26 @@ void DoipServer::handle_diag_message(int fd, const std::uint8_t* payload, std::s
         return;
     }
 
-    const std::vector<std::uint8_t> resp = uds_.Handle(fd, payload + 4, len - 4);
-    if (resp.empty()) {
-        return;
-    }
-
-    std::vector<std::uint8_t> out;
-    out.reserve(4 + resp.size());
-    out.push_back(static_cast<std::uint8_t>(identity_.logical_address >> 8));
-    out.push_back(static_cast<std::uint8_t>(identity_.logical_address & 0xFF));
-    out.push_back(static_cast<std::uint8_t>(source_addr >> 8));
-    out.push_back(static_cast<std::uint8_t>(source_addr & 0xFF));
-    out.insert(out.end(), resp.begin(), resp.end());
-    send_frame(fd, static_cast<std::uint16_t>(PayloadType::kDiagMessage),
-               out.data(), out.size());
+    uds_.Submit(fd, payload + 4, len - 4,
+                [this, fd, source_addr](std::vector<std::uint8_t> resp) {
+                    if (resp.empty() || loop_ == nullptr) {
+                        return;
+                    }
+                    loop_->post([this, fd, source_addr, resp = std::move(resp)]() mutable {
+                        if (connections_.find(fd) == connections_.end()) {
+                            return;
+                        }
+                        std::vector<std::uint8_t> out;
+                        out.reserve(4 + resp.size());
+                        out.push_back(static_cast<std::uint8_t>(identity_.logical_address >> 8));
+                        out.push_back(static_cast<std::uint8_t>(identity_.logical_address & 0xFF));
+                        out.push_back(static_cast<std::uint8_t>(source_addr >> 8));
+                        out.push_back(static_cast<std::uint8_t>(source_addr & 0xFF));
+                        out.insert(out.end(), resp.begin(), resp.end());
+                        send_frame(fd, static_cast<std::uint16_t>(PayloadType::kDiagMessage),
+                                   out.data(), out.size());
+                    });
+                });
 }
 
 void DoipServer::send_diag_nack(int fd, std::uint8_t code, std::uint16_t source_addr,
