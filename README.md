@@ -2,6 +2,44 @@
 
 车载通信与 OTA 平台（面试证据项目）。
 
+## 架构概述
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Demo Applications                      │
+│  doip_server │ someip_server │ someip_client │ ota_demo    │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                    ┌─────────┴─────────┐
+                    │   com (通信抽象层)  │
+                    │  bind_runtime.h   │
+                    │  proxy.h/skeleton.h│
+                    └─────────┬─────────┘
+                              │
+              ┌───────────────┼───────────────┐
+              │               │               │
+     ┌────────┴──────┐ ┌─────┴─────┐ ┌───────┴───────┐
+     │ vsomeip_bind  │ │ dds_bind  │ │  tcp_bind     │
+     │ (SOME/IP)     │ │ (DDS)     │ │ (Raw TCP)     │
+     └───────────────┘ └───────────┘ └───────────────┘
+```
+
+### 模块解耦设计
+
+通信层采用抽象接口设计，上层应用与底层通信协议完全解耦：
+
+- **`com::IRuntime`** - 运行时抽象接口
+- **`com::IHandle`** - 通信句柄抽象接口
+- **`com::ISkeleton`** - 服务端骨架抽象接口
+- **`com::IProxy`** - 客户端代理抽象接口
+
+底层绑定实现：
+- **vsomeip_bind** - 基于 vsomeip3 的 SOME/IP 实现
+- **dds_bind** - (预留) DDS 实现
+- **tcp_bind** - (预留) 原始 TCP 实现
+
+切换底层通信只需更改绑定的 Runtime 实现，上层代码无需修改。
+
 ## 当前里程碑
 
 - M0：工程骨架（CMake、日志、配置）
@@ -11,17 +49,36 @@
 - M4：UDS Download（0x34 / 0x36 / 0x37）
 - M5：SOME/IP 接入 vsomeip3（SD + get_version）
 - M6：OTA Manager（状态机、SHA-256 校验、Mock A/B Slot/Boot Control）
+- M7：通信层解耦，支持 vsomeip/dds 可切换绑定
 
 ## 编译与运行
 
-```bash
-cmake -B build
-cmake --build build -j
+### 依赖
 
+- CMake >= 3.16
+- C++17 编译器
+- vsomeip3 (已内置于 `third_party/vsomeip`)
+
+### 构建
+
+```bash
+# 配置（默认启用 vsomeip 支持）
+cmake -B build
+
+# 或禁用 vsomeip（仅构建基础功能）
+cmake -B build -DWITH_VSOMEIP=OFF
+
+# 编译
+cmake --build build -j
+```
+
+### 运行示例
+
+```bash
 # DoIP / UDS 服务
 ./build/apps/doip_server config/platform.json
 
-# SOME/IP 服务端 / 客户端
+# SOME/IP 服务端 / 客户端（需要 vsomeip 配置）
 VSOMEIP_CONFIGURATION=config/vsomeip.json ./build/apps/someip_server 1.0.0
 VSOMEIP_CONFIGURATION=config/vsomeip.json ./build/apps/someip_client
 
@@ -30,41 +87,19 @@ VSOMEIP_CONFIGURATION=config/vsomeip.json ./build/apps/someip_client
 ./build/apps/ota_demo --fail-boot     # 模拟 B 启动失败并回滚 A
 ```
 
-> 本机默认 `/usr/bin/cmake` 是 3.10，无法构建本工程。请使用
-> `/home/topeet/Desktop/cmake-3.28.6-linux-x86_64/bin/cmake`，或把该目录加入 `PATH`。
+### 通信绑定切换
 
-vsomeip3 已源码 vendor 到 `third_party/vsomeip`，由本工程 `CMakeLists.txt`
-通过 `add_subdirectory(third_party/vsomeip EXCLUDE_FROM_ALL)` 直接编译，
-不再依赖 `/home/topeet/Desktop/vsomeip/install` 的外部 `.so`。
+通信层支持多种底层实现，通过编译选项或运行时配置切换：
 
-### CAPI isoft-doip + isoft-uds 移植版
+```cpp
+// 使用 vsomeip 绑定
+#include <com/vsomeip/vsomeip_bind_runtime.h>
+auto runtime = com::vsomeip::create_runtime("my_service");
 
-已将 CAPI 源码按模块直接并入工程，不再保留独立的 `port/` 目录：
-
-- `src/doip/capi/isoft-doip`：CAPI DoIP Server
-- `src/uds/capi/isoft-uds`：CAPI UDS DCM
-- `src/common/capi`：core-types / common / diag-common / serialize
-- `src/common/compat`：最小 NAI / naicpp / ara-log / thread pool 兼容层
-
-- 不复用整套 NAI，只实现其实际调用的 `nai_*`/事件循环子集；
-- `ara/core` 直接复用 CAPI `core-types`；
-- `ara/log` 提供最小实现，可独立运行；
-
-```bash
-# 构建
-cmake -S . -B build
-cmake --build build --target capi_diag_server -- -j4
-
-# 运行 DoIP(13400) + UDS 服务
-./build/apps/capi_diag_server
-
-# 验证
-python3 tools/doip_discovery_client.py 127.0.0.1 13400
-python3 tools/doip_uds_client.py 127.0.0.1 13400
+// 未来：使用 DDS 绑定
+// #include <com/dds/dds_bind_runtime.h>
+// auto runtime = com::dds::create_runtime("my_service");
 ```
-
-当前 demo 已跑通：UDP 车辆发现、Entity/PowerMode、TCP Routing Activation、
-Alive Check、UDS 0x3E、0x10 会话切换；0x22 等服务需继续注册 DCM 实例配置。
 
 ### 自研 DoIP/UDS 异步 dispatch
 

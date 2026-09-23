@@ -1,14 +1,17 @@
+# Standalone demo applications (no CAPI dependencies)
+
+# DoIP server demo
 add_executable(doip_server doip_server/main.cpp)
 target_link_libraries(doip_server PRIVATE platform_core)
 
+# OTA demo
 add_executable(ota_demo ota_demo/main.cpp)
 target_link_libraries(ota_demo PRIVATE platform_core)
 
+# SOME/IP server demo (using vsomeip binding)
 add_executable(someip_server someip_server/main.cpp)
-target_link_libraries(someip_server PRIVATE platform_core vsomeip3)
+target_link_libraries(someip_server PRIVATE platform_core com)
 
+# SOME/IP client demo (using vsomeip binding)
 add_executable(someip_client someip_client/main.cpp)
-target_link_libraries(someip_client PRIVATE platform_core vsomeip3)
-
-add_executable(capi_diag_server capi_diag_server/main.cpp)
-target_link_libraries(capi_diag_server PRIVATE capi_doip capi_uds capi_common)
+target_link_libraries(someip_client PRIVATE platform_core com)

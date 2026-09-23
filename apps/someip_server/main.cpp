@@ -1,129 +1,150 @@
-#include <vsomeip/vsomeip.hpp>
+// Copyright 2024
+// Licensed under the Apache License, Version 2.0
+
+/// @file       main.cpp
+/// @brief      SOME/IP Server using decoupled communication layer
+
+#include "com/runtime.h"
+#include "com/vsomeip/vsomeip_bind_runtime.h"
+#include "com/skeleton.h"
 
 #include <csignal>
 #include <chrono>
+#include <cstring>
 #include <iostream>
-#include <set>
 #include <string>
 #include <vector>
 
-class SomeipService;
+namespace
+{
 
-namespace {
+    constexpr com::ServiceIdentifier kServiceId = 0x1234;
+    constexpr com::InstanceIdentifier kInstanceId = 0x5678;
+    constexpr com::MethodIdentifier kMethodId = 0x0001;
+    constexpr com::EventIdentifier kEventId = 0x8778;
+    constexpr com::EventGroupIdentifier kEventGroupId = 0x4465;
 
-constexpr vsomeip::service_t kServiceId = 0x1234;
-constexpr vsomeip::instance_t kInstanceId = 0x5678;
-constexpr vsomeip::method_t kMethodId = 0x0001;
-constexpr vsomeip::event_t kEventId = 0x8778;
-constexpr vsomeip::eventgroup_t kEventGroupId = 0x4465;
+    com::Runtime *g_runtime = nullptr;
 
-SomeipService* g_service = nullptr;
+} // namespace
 
-}  // namespace
-
-class SomeipService {
+/// @brief Service skeleton for version service
+class VersionServiceSkeleton : public com::skeleton::ServiceSkeleton<VersionServiceSkeleton>
+{
 public:
-    explicit SomeipService(std::string version)
-        : version_(std::move(version)),
-          app_(vsomeip::runtime::get()->create_application("someip-service")) {}
-
-    bool init() {
-        if (!app_->init()) {
-            std::cerr << "vsomeip application init failed\n";
-            return false;
-        }
-
-        app_->register_state_handler(
-            [this](vsomeip::state_type_e state) { on_state(state); });
-        app_->register_message_handler(
-            kServiceId, kInstanceId, kMethodId,
-            [this](const std::shared_ptr<vsomeip::message>& request) {
-                on_message(request);
-            });
-        app_->register_availability_handler(
-            kServiceId, kInstanceId,
-            [this](vsomeip::service_t service, vsomeip::instance_t instance,
-                   bool available) {
-                on_availability(service, instance, available);
-            });
-        return true;
+    explicit VersionServiceSkeleton(std::string version) noexcept
+        : com::skeleton::ServiceSkeleton<VersionServiceSkeleton>(kServiceId, kInstanceId),
+          version_(std::move(version))
+    {
     }
 
-    void start() {
-        app_->start();
+    /// @brief Handle get_version request
+    void OnGetVersionRequest(std::vector<uint8_t> const & /*request*/, std::vector<uint8_t> &response)
+    {
+        std::cout << "someip-service recv method=0x" << std::hex << kMethodId << std::dec << "\n";
+        response.assign(version_.begin(), version_.end());
     }
 
-    void stop() {
-        app_->stop_offer_service(kServiceId, kInstanceId);
-        app_->clear_all_handler();
-        app_->stop();
+    /// @brief Get the version string
+    std::string const &GetVersion() const noexcept
+    {
+        return version_;
     }
 
 private:
-    void on_state(vsomeip::state_type_e state) {
-        std::cout << "someip-service state=" << static_cast<int>(state) << "\n";
-        if (state == vsomeip::state_type_e::ST_REGISTERED) {
-            app_->offer_service(kServiceId, kInstanceId);
-
-            std::set<vsomeip::eventgroup_t> groups{kEventGroupId};
-            app_->offer_event(
-                kServiceId, kInstanceId, kEventId, groups,
-                vsomeip::event_type_e::ET_EVENT, std::chrono::milliseconds::zero(),
-                false, true, nullptr, vsomeip::reliability_type_e::RT_RELIABLE);
-        }
-    }
-
-    void on_availability(vsomeip::service_t, vsomeip::instance_t, bool available) {
-        if (available) {
-            notify_version();
-        }
-    }
-
-    void on_message(const std::shared_ptr<vsomeip::message>& request) {
-        std::cout << "someip-service recv method=0x"
-                  << std::hex << request->get_method() << std::dec << "\n";
-
-        auto response = vsomeip::runtime::get()->create_response(request);
-        response->set_payload(make_payload(version_));
-        app_->send(response);
-    }
-
-    void notify_version() {
-        app_->notify(kServiceId, kInstanceId, kEventId, make_payload(version_));
-    }
-
-    std::shared_ptr<vsomeip::payload> make_payload(const std::string& text) const {
-        auto payload = vsomeip::runtime::get()->create_payload();
-        std::vector<vsomeip::byte_t> data(text.begin(), text.end());
-        payload->set_data(data);
-        return payload;
-    }
-
     std::string version_;
-    std::shared_ptr<vsomeip::application> app_;
 };
 
-void handle_signal(int) {
-    if (g_service != nullptr) {
-        g_service->stop();
+void handle_signal(int)
+{
+    if (g_runtime != nullptr)
+    {
+        g_runtime->Stop();
     }
 }
 
-int main(int argc, char** argv) {
+int main(int argc, char **argv)
+{
     std::string version = "1.0.0";
-    if (argc > 1) {
+    if (argc > 1)
+    {
         version = argv[1];
     }
 
-    SomeipService service(version);
-    g_service = &service;
-    std::signal(SIGINT, handle_signal);
-    std::signal(SIGTERM, handle_signal);
+    std::cout << "SOME/IP Server using decoupled communication layer\n";
+    std::cout << "Version: " << version << "\n";
 
-    if (!service.init()) {
+    // Get runtime instance
+    auto *runtime = com::Runtime::Get();
+    if (!runtime)
+    {
+        std::cerr << "Failed to get runtime\n";
+        return 1;
+    }
+    g_runtime = runtime;
+
+    // Initialize runtime
+    auto initResult = runtime->Init();
+    if (!initResult)
+    {
+        std::cerr << "Failed to initialize runtime\n";
         return 1;
     }
 
-    service.start();
+    // Create and register vsomeip bind runtime
+    auto vsomeipRuntime = std::make_unique<com::vsomeip_binding::VsomeipBindRuntime>("someip-service");
+    auto vsomeipInitResult = vsomeipRuntime->Init();
+    if (!vsomeipInitResult)
+    {
+        std::cerr << "Failed to initialize vsomeip runtime\n";
+        return 1;
+    }
+
+    auto registerResult = runtime->RegisterBindRuntime(std::move(vsomeipRuntime));
+    if (!registerResult)
+    {
+        std::cerr << "Failed to register vsomeip runtime\n";
+        return 1;
+    }
+
+    // Get the vsomeip bind runtime
+    auto *bindRuntime = runtime->GetBindRuntime("vsomeip");
+    if (!bindRuntime)
+    {
+        std::cerr << "Failed to get vsomeip runtime\n";
+        return 1;
+    }
+
+    // Create service skeleton
+    VersionServiceSkeleton skeleton(version);
+
+    // Create bind skeletons
+    std::vector<std::unique_ptr<com::skeleton::BindSkeleton>> bindSkeletons;
+    bindRuntime->CreateBindSkeleton(skeleton, 1, bindSkeletons);
+
+    // Offer the service
+    for (auto &bs : bindSkeletons)
+    {
+        bs->Offer();
+    }
+
+    std::cout << "Service offered. Press Ctrl+C to exit.\n";
+
+    // Register signal handlers
+    std::signal(SIGINT, handle_signal);
+    std::signal(SIGTERM, handle_signal);
+
+    // Start the runtime (blocking)
+    runtime->Start();
+
+    // Cleanup
+    for (auto &bs : bindSkeletons)
+    {
+        bs->StopOffer();
+    }
+
+    runtime->Stop();
+    runtime->Deinit();
+
     return 0;
 }
