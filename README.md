@@ -1,6 +1,6 @@
 # rk3568-automotive-platform
 
-车载通信与 OTA 平台（面试证据项目）。
+车载通信与 OTA 平台
 
 ## 架构概述
 
@@ -34,6 +34,7 @@
 - **`com::IProxy`** - 客户端代理抽象接口
 
 底层绑定实现：
+
 - **vsomeip_bind** - 基于 vsomeip3 的 SOME/IP 实现
 - **dds_bind** - (预留) DDS 实现
 - **tcp_bind** - (预留) 原始 TCP 实现
