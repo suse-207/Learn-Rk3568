@@ -39,7 +39,7 @@ namespace com
     Result<void> Runtime::Init() noexcept
     {
         initialized_ = true;
-        return Result<void>(true);
+        return Result<void>::FromValue();
     }
 
     Result<void> Runtime::Deinit() noexcept
@@ -53,7 +53,7 @@ namespace com
             }
         }
         initialized_ = false;
-        return Result<void>(true);
+        return Result<void>::FromValue();
     }
 
     void Runtime::Start() noexcept
@@ -84,13 +84,13 @@ namespace com
     {
         if (!bindRuntime)
         {
-            return Result<void>(false, "Invalid bind runtime");
+            return Result<void>::FromError(ComErrc::kInvalidArgument);
         }
 
         auto name = bindRuntime->GetName();
         if (!name)
         {
-            return Result<void>(false, "Bind runtime has no name");
+            return Result<void>::FromError(ComErrc::kInvalidName);
         }
 
         // Initialize the bind runtime
@@ -102,20 +102,20 @@ namespace com
 
         // Store the bind runtime
         bindRuntimes_[name] = std::move(bindRuntime);
-        return Result<void>(true);
+        return Result<void>::FromValue();
     }
 
     Result<void> Runtime::UnregisterBindRuntime(char const *name) noexcept
     {
         if (!name)
         {
-            return Result<void>(false, "Invalid name");
+            return Result<void>::FromError(ComErrc::kInvalidName);
         }
 
         auto it = bindRuntimes_.find(name);
         if (it == bindRuntimes_.end())
         {
-            return Result<void>(false, "Bind runtime not found");
+            return Result<void>::FromError(ComErrc::kNotFound);
         }
 
         if (it->second)
@@ -123,7 +123,7 @@ namespace com
             it->second->Deinit();
         }
         bindRuntimes_.erase(it);
-        return Result<void>(true);
+        return Result<void>::FromValue();
     }
 
     BindRuntime *Runtime::GetBindRuntime(char const *name) noexcept
@@ -147,9 +147,36 @@ namespace com
         names.reserve(bindRuntimes_.size());
         for (auto const &[name, rt] : bindRuntimes_)
         {
-            names.push_back(name);
+            names.push_back(name.c_str());
         }
         return names;
+    }
+
+    // -- P3: InstanceSpecifier → (serviceId, instanceId) mapping --
+
+    void Runtime::RegisterServiceMapping(
+        InstanceSpecifier const &specifier,
+        ServiceIdentifier serviceId,
+        InstanceIdentifier instanceId) noexcept
+    {
+        auto sv = specifier.ToString();
+        serviceMappings_[std::string(sv.data(), sv.size())] = {serviceId, instanceId};
+    }
+
+    bool Runtime::ResolveServiceMapping(
+        InstanceSpecifier const &specifier,
+        ServiceIdentifier &serviceId,
+        InstanceIdentifier &instanceId) const noexcept
+    {
+        auto sv = specifier.ToString();
+        auto it = serviceMappings_.find(std::string(sv.data(), sv.size()));
+        if (it != serviceMappings_.end())
+        {
+            serviceId = it->second.serviceId;
+            instanceId = it->second.instanceId;
+            return true;
+        }
+        return false;
     }
 
 } // namespace com

@@ -75,6 +75,14 @@ int main(int argc, char *argv[])
         return 1;
     }
 
+    // Get the vsomeip bind runtime
+    auto *bindRuntime = runtime->GetBindRuntime("vsomeip");
+    if (!bindRuntime)
+    {
+        std::cerr << "Failed to get vsomeip runtime" << std::endl;
+        return 1;
+    }
+
     // Create service skeleton
     ExampleServiceSkeleton skeleton;
 

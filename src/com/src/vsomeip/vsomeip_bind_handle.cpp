@@ -64,14 +64,14 @@ namespace com
         {
             if (!IsValid())
             {
-                return Result<std::vector<uint8_t>>(false, "Invalid handle");
+                return Result<std::vector<uint8_t>>::FromError(ComErrc::kInvalidHandle);
             }
 
             // Create request message
-            auto request = vsomeipApp_->get_runtime()->create_request();
+            auto request = vsomeip_v3::runtime::get()->create_request();
             if (!request)
             {
-                return Result<std::vector<uint8_t>>(false, "Failed to create request");
+                return Result<std::vector<uint8_t>>::FromError(ComErrc::kInternalError);
             }
 
             request->set_service(static_cast<vsomeip_v3::service_t>(serviceId_));
@@ -79,10 +79,10 @@ namespace com
             request->set_method(static_cast<vsomeip_v3::method_t>(methodId));
 
             // Set payload
-            auto payload = vsomeipApp_->get_runtime()->create_payload();
+            auto payload = vsomeip_v3::runtime::get()->create_payload();
             if (!payload)
             {
-                return Result<std::vector<uint8_t>>(false, "Failed to create payload");
+                return Result<std::vector<uint8_t>>::FromError(ComErrc::kInternalError);
             }
             payload->set_data(requestData);
             request->set_payload(payload);
@@ -106,7 +106,8 @@ namespace com
                         auto respPayload = response->get_payload();
                         if (respPayload)
                         {
-                            responseData = respPayload->get_data();
+                            responseData.assign(respPayload->get_data(),
+                                                respPayload->get_data() + respPayload->get_length());
                             success = true;
                         }
                     }
@@ -134,7 +135,7 @@ namespace com
                         static_cast<vsomeip_v3::service_t>(serviceId_),
                         static_cast<vsomeip_v3::instance_t>(instanceId_),
                         static_cast<vsomeip_v3::method_t>(methodId));
-                    return Result<std::vector<uint8_t>>(false, "Request timeout");
+                    return Result<std::vector<uint8_t>>::FromError(ComErrc::kTimeout);
                 }
             }
 
@@ -146,9 +147,9 @@ namespace com
 
             if (success)
             {
-                return Result<std::vector<uint8_t>>(responseData);
+                return Result<std::vector<uint8_t>>::FromValue(responseData);
             }
-            return Result<std::vector<uint8_t>>(false, "Request failed");
+            return Result<std::vector<uint8_t>>::FromError(ComErrc::kCommunicationError);
         }
 
         void VsomeipBindHandle::SendRequestAsync(
@@ -160,16 +161,16 @@ namespace com
             {
                 if (handler)
                 {
-                    handler(Result<std::vector<uint8_t>>(false, "Invalid handle"));
+                    handler(Result<std::vector<uint8_t>>::FromError(ComErrc::kInvalidHandle));
                 }
                 return;
             }
 
             // Create request message
-            auto request = vsomeipApp_->get_runtime()->create_request();
+            auto request = vsomeip_v3::runtime::get()->create_request();
             if (!request)
             {
-                handler(Result<std::vector<uint8_t>>(false, "Failed to create request"));
+                handler(Result<std::vector<uint8_t>>::FromError(ComErrc::kInternalError));
                 return;
             }
 
@@ -178,7 +179,7 @@ namespace com
             request->set_method(static_cast<vsomeip_v3::method_t>(methodId));
 
             // Set payload
-            auto payload = vsomeipApp_->get_runtime()->create_payload(requestData);
+            auto payload = vsomeip_v3::runtime::get()->create_payload(requestData);
             if (payload)
             {
                 request->set_payload(payload);
@@ -202,15 +203,84 @@ namespace com
                         auto respPayload = response->get_payload();
                         if (respPayload)
                         {
-                            handler(Result<std::vector<uint8_t>>(respPayload->get_data()));
+                            handler(Result<std::vector<uint8_t>>::FromValue(
+                                std::vector<uint8_t>(respPayload->get_data(),
+                                                     respPayload->get_data() + respPayload->get_length())));
                             return;
                         }
                     }
-                    handler(Result<std::vector<uint8_t>>(false, "Request failed"));
+                    handler(Result<std::vector<uint8_t>>::FromError(ComErrc::kCommunicationError));
                 });
 
             // Send request
             vsomeipApp_->send(request);
+        }
+
+        ara::core::Future<std::vector<uint8_t>> VsomeipBindHandle::SendRequestAsync(
+            MethodIdentifier methodId,
+            std::vector<uint8_t> const &requestData) noexcept
+        {
+            // Create Promise/Future pair (P2: ara::com-style async)
+            auto promisePtr = std::make_shared<ara::core::Promise<std::vector<uint8_t>>>();
+            auto future = promisePtr->get_future();
+
+            if (!IsValid())
+            {
+                promisePtr->SetError(MakeErrorCode(ComErrc::kInvalidHandle));
+                return future;
+            }
+
+            // Create request message
+            auto request = vsomeip_v3::runtime::get()->create_request();
+            if (!request)
+            {
+                promisePtr->SetError(MakeErrorCode(ComErrc::kInternalError));
+                return future;
+            }
+
+            request->set_service(static_cast<vsomeip_v3::service_t>(serviceId_));
+            request->set_instance(static_cast<vsomeip_v3::instance_t>(instanceId_));
+            request->set_method(static_cast<vsomeip_v3::method_t>(methodId));
+
+            // Set payload
+            auto payload = vsomeip_v3::runtime::get()->create_payload();
+            if (!payload)
+            {
+                promisePtr->SetError(MakeErrorCode(ComErrc::kInternalError));
+                return future;
+            }
+            payload->set_data(requestData);
+            request->set_payload(payload);
+
+            // Register message handler for response that fulfills the Promise
+            vsomeipApp_->register_message_handler(
+                static_cast<vsomeip_v3::service_t>(serviceId_),
+                static_cast<vsomeip_v3::instance_t>(instanceId_),
+                static_cast<vsomeip_v3::method_t>(methodId),
+                [promisePtr, methodId](std::shared_ptr<vsomeip_v3::message> const &response) mutable
+                {
+                    // Unregister handler after first response
+                    // Note: In a real implementation, you'd need to track the app reference
+                    // For now, we just fulfill the promise
+
+                    if (response && response->get_message_type() == vsomeip_v3::message_type_e::MT_RESPONSE)
+                    {
+                        auto respPayload = response->get_payload();
+                        if (respPayload)
+                        {
+                            promisePtr->set_value(
+                                std::vector<uint8_t>(respPayload->get_data(),
+                                                     respPayload->get_data() + respPayload->get_length()));
+                            return;
+                        }
+                    }
+                    promisePtr->SetError(MakeErrorCode(ComErrc::kCommunicationError));
+                });
+
+            // Send request
+            vsomeipApp_->send(request);
+
+            return future;
         }
 
         void VsomeipBindHandle::SubscribeEvent(
@@ -242,7 +312,8 @@ namespace com
                         auto payload = notification->get_payload();
                         if (payload)
                         {
-                            handler(payload->get_data());
+                            handler(std::vector<uint8_t>(payload->get_data(),
+                                                         payload->get_data() + payload->get_length()));
                         }
                     }
                 });

@@ -75,3 +75,6 @@ target_link_libraries(capi_uds PUBLIC capi_common)
 target_compile_definitions(capi_uds PRIVATE _GNU_SOURCE)
 set_source_files_properties(${CAPI_UDS_SRC}
     PROPERTIES COMPILE_OPTIONS "-include;isoft/define.h")
+
+# Communication layer (ara::com-style)
+add_subdirectory(com)

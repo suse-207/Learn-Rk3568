@@ -3,7 +3,9 @@
 
 /// @file       types.h
 /// @brief      Communication types definition
-/// @details    Common types used across the communication stack
+/// @details    Common types used across the communication stack.
+///             P0: Result now uses ara::core::ErrorCode instead of std::string.
+///             P3: InstanceSpecifier alias added.
 
 #pragma once
 
@@ -16,6 +18,13 @@
 #include <functional>
 #include <mutex>
 #include <atomic>
+#include <chrono>
+
+#include "ara/core/error_code.h"
+#include "ara/core/instance_specifier.h"
+#include "ara/core/future.h"
+#include "ara/core/promise.h"
+#include "com/com_error_domain.h"
 
 namespace com
 {
@@ -32,11 +41,30 @@ namespace com
     /// @brief Event identifier type
     using EventIdentifier = uint16_t;
 
+    /// @brief Event group identifier type
+    using EventGroupIdentifier = uint16_t;
+
     /// @brief Field identifier type
     using FieldIdentifier = uint16_t;
 
     /// @brief Instance identifier container type
     using InstanceIdentifierContainer = std::vector<InstanceIdentifier>;
+
+    /// @brief InstanceSpecifier (P3: AUTOSAR-style service identification)
+    using InstanceSpecifier = ara::core::InstanceSpecifier;
+
+    /// @brief Future type for async operations (P2: ara::com-style async)
+    /// @tparam T Value type
+    template <typename T>
+    using Future = ara::core::Future<T>;
+
+    /// @brief Promise type for async operations (P2: ara::com-style async)
+    /// @tparam T Value type
+    template <typename T>
+    using Promise = ara::core::Promise<T>;
+
+    /// @brief Duration type for timeouts
+    using Duration = std::chrono::milliseconds;
 
     /// @brief Service handle container type
     template <typename T>
@@ -49,6 +77,10 @@ namespace com
         InstanceIdentifier instanceIdentifier;
         uint64_t uid;
 
+        FindServiceHandle() : serviceIdentifier(0), instanceIdentifier(0), uid(GenerateUID()) {}
+        FindServiceHandle(ServiceIdentifier svc, InstanceIdentifier inst)
+            : serviceIdentifier(svc), instanceIdentifier(inst), uid(GenerateUID()) {}
+
         static uint64_t GenerateUID()
         {
             static std::atomic<uint64_t> counter{0};
@@ -58,7 +90,7 @@ namespace com
 
     /// @brief Find service handler type
     template <typename T>
-    using FindServiceHandler = std::function<void(ServiceHandleContainer<T> const &, FindServiceHandle const &)>;
+    using FindServiceHandler = std::function<void(ServiceHandleContainer<T> const &)>;
 
     /// @brief Method call processing mode
     enum class MethodCallProcessingMode
@@ -67,34 +99,56 @@ namespace com
         kParallel ///< Parallel mode
     };
 
+    // -----------------------------------------------------------------------
+    // Result type (P0: uses ara::core::ErrorCode instead of std::string)
+    // -----------------------------------------------------------------------
+
     /// @brief Result type for error handling
     template <typename T>
     class Result
     {
     public:
-        Result() : hasValue_(true), value_{} {}
-        Result(T const &value) : hasValue_(true), value_(value) {}
-        Result(T &&value) : hasValue_(true), value_(std::move(value)) {}
-
-        static Result Error(std::string const &errorMsg)
+        Result() : hasValue_(true), value_{}, error_(MakeErrorCode(ComErrc::kSuccess)) {}
+        Result(T const &value) : hasValue_(true), value_(value), error_(MakeErrorCode(ComErrc::kSuccess)) {}
+        Result(T &&value) : hasValue_(true), value_(std::move(value)), error_(MakeErrorCode(ComErrc::kSuccess)) {}
+        explicit Result(ara::core::ErrorCode ec) : hasValue_(false), error_(ec) {}
+        Result(bool success, std::string const &errorMsg)
+            : hasValue_(success),
+              error_(success ? MakeErrorCode(ComErrc::kSuccess)
+                             : MakeErrorCode(ComErrc::kInternalError))
         {
-            Result r;
-            r.hasValue_ = false;
-            r.errorMsg_ = errorMsg;
-            return r;
+            (void)errorMsg;
         }
+
+        static Result FromValue(T const &v) { return Result(v); }
+        static Result FromValue(T &&v) { return Result(std::move(v)); }
+        static Result FromError(ara::core::ErrorCode ec) { return Result(ec); }
+        static Result FromError(ComErrc ec) { return Result(MakeErrorCode(ec)); }
 
         bool HasValue() const { return hasValue_; }
         T const &Value() const { return value_; }
+        T const &value() const { return value_; }
         T &&MoveValue() { return std::move(value_); }
-        std::string const &ErrorMsg() const { return errorMsg_; }
+        ara::core::ErrorCode Error() const { return error_; }
+
+        struct ErrorInfo
+        {
+            ara::core::ErrorCode errorCode;
+            std::string message;
+        };
+        ErrorInfo error() const
+        {
+            auto message = error_.Message();
+            std::string msg(message.data(), message.size());
+            return {error_, std::move(msg)};
+        }
 
         operator bool() const { return hasValue_; }
 
     private:
-        bool hasValue_;
+        bool hasValue_{true};
         T value_{};
-        std::string errorMsg_;
+        ara::core::ErrorCode error_;
     };
 
     /// @brief Void result specialization
@@ -102,24 +156,40 @@ namespace com
     class Result<void>
     {
     public:
-        Result() : hasValue_(true) {}
-
-        static Result Error(std::string const &errorMsg)
+        Result() : hasValue_(true), error_(MakeErrorCode(ComErrc::kSuccess)) {}
+        explicit Result(ara::core::ErrorCode ec) : hasValue_(false), error_(ec) {}
+        Result(bool success, std::string const &errorMsg)
+            : hasValue_(success),
+              error_(success ? MakeErrorCode(ComErrc::kSuccess)
+                             : MakeErrorCode(ComErrc::kInternalError))
         {
-            Result r;
-            r.hasValue_ = false;
-            r.errorMsg_ = errorMsg;
-            return r;
+            (void)errorMsg;
         }
 
+        static Result FromValue() { return Result(); }
+        static Result FromError(ara::core::ErrorCode ec) { return Result(ec); }
+        static Result FromError(ComErrc ec) { return Result(MakeErrorCode(ec)); }
+
         bool HasValue() const { return hasValue_; }
-        std::string const &ErrorMsg() const { return errorMsg_; }
+        ara::core::ErrorCode Error() const { return error_; }
+
+        struct ErrorInfo
+        {
+            ara::core::ErrorCode errorCode;
+            std::string message;
+        };
+        ErrorInfo error() const
+        {
+            auto message = error_.Message();
+            std::string msg(message.data(), message.size());
+            return {error_, std::move(msg)};
+        }
 
         operator bool() const { return hasValue_; }
 
     private:
-        bool hasValue_;
-        std::string errorMsg_;
+        bool hasValue_{false};
+        ara::core::ErrorCode error_;
     };
 
 } // namespace com

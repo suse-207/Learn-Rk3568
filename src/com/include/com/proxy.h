@@ -37,6 +37,18 @@ namespace com
 
             /// @brief Get the binding runtime name
             virtual char const *GetBindRuntimeName() const noexcept = 0;
+
+            /// @brief Send a request and wait for the response
+            virtual Result<std::vector<uint8_t>> SendRequest(
+                MethodIdentifier methodId,
+                std::vector<uint8_t> const &requestData,
+                Duration timeout) noexcept = 0;
+
+            /// @brief Send a request asynchronously
+            virtual void SendRequestAsync(
+                MethodIdentifier methodId,
+                std::vector<uint8_t> const &requestData,
+                std::function<void(Result<std::vector<uint8_t>>)> handler) noexcept = 0;
         };
 
         /// @brief Binding layer proxy abstract interface
@@ -63,14 +75,12 @@ namespace com
         /// @brief Service proxy base class
         /// @tparam T Service interface type (user-defined)
         /// @details Application layer uses this to access remote services.
-        ///          This class is protocol-agnostic.
+        ///          P3: Optionally accepts an InstanceSpecifier for AUTOSAR-style identification.
         template <typename T>
         class ServiceProxy : public T
         {
         public:
-            /// @brief Constructor
-            /// @param[in] serviceIdentifier Service identifier
-            /// @param[in] instanceIdentifier Instance identifier
+            /// @brief Constructor with numeric IDs
             ServiceProxy(
                 ServiceIdentifier const &serviceIdentifier,
                 InstanceIdentifier const &instanceIdentifier) noexcept
@@ -78,48 +88,61 @@ namespace com
             {
             }
 
-            /// @brief Destructor
+            /// @brief Constructor with InstanceSpecifier (P3)
+            ServiceProxy(
+                InstanceSpecifier const &specifier,
+                ServiceIdentifier const &serviceIdentifier,
+                InstanceIdentifier const &instanceIdentifier) noexcept
+                : serviceIdentifier_(serviceIdentifier),
+                  instanceIdentifier_(instanceIdentifier),
+                  instanceSpecifier_(specifier)
+            {
+            }
+
             ~ServiceProxy() override = default;
 
-            /// @brief Initialize the service proxy
             Result<void> Init() noexcept
             {
                 std::lock_guard<std::mutex> lock(mutex_);
                 if (initialized_)
                 {
-                    return Result<void>(true);
+                    return Result<void>::FromValue();
                 }
 
-                // Get binding runtimes and create bind proxies
-                auto const &bindRuntimes = Runtime::GetInstance().GetBindRuntimes();
-                for (auto const &bindRuntime : bindRuntimes)
+                auto *runtime = Runtime::Get();
+                if (!runtime)
                 {
-                    // Service discovery - find available service handles
-                    ServiceHandleContainer<std::shared_ptr<BindHandle>> bindHandles;
-                    bindRuntime->GetAvailableServiceHandles(
-                        serviceIdentifier_, instanceIdentifier_, bindHandles);
+                    return Result<void>::FromError(ComErrc::kNotInitialized);
+                }
 
-                    // Store handles for later use
-                    for (auto &handle : bindHandles)
+                for (auto const &name : runtime->GetBindRuntimeNames())
+                {
+                    auto *bindRuntime = runtime->GetBindRuntime(name);
+                    if (bindRuntime)
                     {
-                        bindHandles_.push_back(std::move(handle));
+                        ServiceHandleContainer<std::shared_ptr<BindHandle>> bindHandles;
+                        bindRuntime->GetAvailableServiceHandles(
+                            serviceIdentifier_, instanceIdentifier_, bindHandles);
+
+                        for (auto &handle : bindHandles)
+                        {
+                            bindHandles_.push_back(std::move(handle));
+                        }
                     }
                 }
 
                 initialized_ = true;
-                return Result<void>(true);
+                return Result<void>::FromValue();
             }
 
-            /// @brief Deinitialize the service proxy
             Result<void> Deinit() noexcept
             {
                 std::lock_guard<std::mutex> lock(mutex_);
                 bindHandles_.clear();
                 initialized_ = false;
-                return Result<void>(true);
+                return Result<void>::FromValue();
             }
 
-            /// @brief Check if service is available
             bool IsAvailable() const noexcept
             {
                 std::lock_guard<std::mutex> lock(mutex_);
@@ -133,7 +156,6 @@ namespace com
                 return false;
             }
 
-            /// @brief Wait for service availability
             bool WaitForAvailable(Duration timeout) noexcept
             {
                 auto start = std::chrono::steady_clock::now();
@@ -149,9 +171,16 @@ namespace com
                 return true;
             }
 
+            /// @brief Get instance specifier (P3)
+            InstanceSpecifier const &GetInstanceSpecifier() const noexcept
+            {
+                return instanceSpecifier_;
+            }
+
         protected:
             ServiceIdentifier serviceIdentifier_;
             InstanceIdentifier instanceIdentifier_;
+            InstanceSpecifier instanceSpecifier_;
             std::vector<std::shared_ptr<BindHandle>> bindHandles_;
             mutable std::mutex mutex_;
             bool initialized_{false};

@@ -66,6 +66,18 @@ namespace com
         /// @brief Move assignment operator
         BindRuntime &operator=(BindRuntime &&other) noexcept = default;
 
+        /// @brief Initialize the binding runtime
+        virtual Result<void> Init() noexcept { return Result<void>::FromValue(); }
+
+        /// @brief Deinitialize the binding runtime
+        virtual Result<void> Deinit() noexcept { return Result<void>::FromValue(); }
+
+        /// @brief Start the binding runtime event loop (blocking)
+        virtual void Start() noexcept {}
+
+        /// @brief Stop the binding runtime event loop
+        virtual void Stop() noexcept {}
+
         /// @brief Create a binding layer skeleton instance (Skeleton side)
         /// @param[in] skeleton Service skeleton
         /// @param[in] instanceIdentifier Instance identifier

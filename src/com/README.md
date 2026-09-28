@@ -1,8 +1,67 @@
-# com - 通信抽象层
+# com - 通信抽象层（贴近 AUTOSAR ara::com）
 
 ## 概述
 
 `com` 模块提供车载通信的抽象接口层，将上层应用与底层通信协议（SOME/IP、DDS等）完全解耦。
+
+**架构决策**：跳过 nsomeip 中间层，保留自研 `com` 层的 `BindRuntime` 解耦设计，底层直接绑定 vsomeip3，同时引入 `ara::core` 核心类型以贴近 AUTOSAR 标准。
+
+## 分阶段改造状态
+
+| 阶段 | 内容 | 状态 |
+|------|------|------|
+| P0 | `com::Result` 错误类型从 `std::string` → `ara::core::ErrorCode` | ✅ 完成 |
+| P1 | 定义 `ComErrorDomain` + `ComErrc` 错误码枚举 | ✅ 完成 |
+| P2 | 引入 `ara::core::Future/Promise` 替代回调式异步 | ✅ 完成 |
+| P3 | 引入 `InstanceSpecifier` 服务标识（基础支持） | ✅ 完成 |
+
+### P0：错误处理标准化
+- 新增 `com/com_error_domain.h`，定义 `ComErrorDomain` 和 `ComErrc`
+- `Result<T>` 内部使用 `ara::core::ErrorCode` 替代 `std::string`
+- 提供 ara::core 风格工厂方法：`Result::FromValue()` / `Result::FromError()`
+- 保留向后兼容的 `Result(bool, string)` 构造函数
+- 提供 `.error()` 兼容方法，返回 `{errorCode, message}` 结构体
+
+### P1：错误域定义
+- `ComErrc` 枚举：kServiceNotFound, kTimeout, kInvalidHandle, kCommunicationError 等
+- `ComErrorDomain` 继承 `ara::core::ErrorDomain`，域 ID = `0x434F4D00`
+- `MakeErrorCode(ComErrc)` 辅助函数
+
+### P3：InstanceSpecifier 服务标识
+- `types.h` 新增 `using InstanceSpecifier = ara::core::InstanceSpecifier`
+- `ServiceProxy` / `ServiceSkeleton` 新增接受 `InstanceSpecifier` 的构造函数
+- `Runtime` 新增 `RegisterServiceMapping()` / `ResolveServiceMapping()`
+- 绑定层仍使用 uint16_t 数字 ID，通过 `Runtime` 映射表解析
+
+### P2：Future/Promise 异步通信
+- `types.h` 新增 `com::Future<T>` / `com::Promise<T>` 类型别名（指向 `ara::core::Future<T>` / `ara::core::Promise<T>`）
+- `VsomeipBindHandle::SendRequestAsync(methodId, data)` 返回 `ara::core::Future<std::vector<uint8_t>>`
+- 内部使用 `ara::core::Promise` 桥接 vsomeip 回调 → Future 完成
+- 支持 `Future::then()` 链式回调和 `Future::get()` 阻塞获取
+- 保留原有回调式 `SendRequestAsync(methodId, data, handler)` 向后兼容
+
+```cpp
+// P2: ara::com 风格异步调用
+auto future = handle->SendRequestAsync(0x0001, requestData);
+future.then([](ara::core::Result<std::vector<uint8_t>> result) {
+    if (result) {
+        // 处理响应
+    } else {
+        // 处理错误
+    }
+});
+```
+
+## 核心类型
+
+| 类型 | 来源 | 说明 |
+|------|------|------|
+| `com::Result<T>` | com (P0) | 错误处理，内部使用 `ara::core::ErrorCode` |
+| `com::ComErrc` | com (P1) | 通信层错误码枚举 |
+| `com::ComErrorDomain` | com (P1) | 通信层错误域 |
+| `com::Future<T>` | ara::core (P2) | 异步操作结果（支持 `.then()` 链式回调） |
+| `com::Promise<T>` | ara::core (P2) | 异步操作承诺（与 Future 配对使用） |
+| `com::InstanceSpecifier` | ara::core (P3) | AUTOSAR 标准服务标识 |
 
 ## 架构设计
 

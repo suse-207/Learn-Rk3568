@@ -23,6 +23,7 @@ set(COM_SOURCES
 # Header files
 set(COM_HEADERS
     include/com/types.h
+    include/com/com_error_domain.h
     include/com/bind_runtime.h
     include/com/runtime.h
     include/com/proxy.h
@@ -45,11 +46,15 @@ endif()
 
 # Create library
 add_library(com ${COM_SOURCES} ${COM_HEADERS})
+if(TARGET capi_common)
+    target_link_libraries(com PUBLIC capi_common)
+endif()
 
 # Include directories
 target_include_directories(com
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../common/capi/core-types/include>
         $<INSTALL_INTERFACE:include>
 )
 
@@ -80,41 +85,3 @@ if(COM_WITH_VSOMEIP)
     endif()
 endif()
 
-# Install
-install(TARGETS com
-    EXPORT comTargets
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
-    RUNTIME DESTINATION bin
-)
-
-install(DIRECTORY include/com
-    DESTINATION include
-)
-
-# Export
-install(EXPORT comTargets
-    FILE comTargets.cmake
-    NAMESPACE com::
-    DESTINATION lib/cmake/com
-)
-
-# Config file
-include(CMakePackageConfigHelpers)
-write_basic_package_version_file(
-    "${CMAKE_CURRENT_BINARY_DIR}/comConfigVersion.cmake"
-    VERSION ${PROJECT_VERSION}
-    COMPATIBILITY AnyNewerVersion
-)
-
-configure_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/comConfig.cmake.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/comConfig.cmake"
-    @ONLY
-)
-
-install(FILES
-    "${CMAKE_CURRENT_BINARY_DIR}/comConfig.cmake"
-    "${CMAKE_CURRENT_BINARY_DIR}/comConfigVersion.cmake"
-    DESTINATION lib/cmake/com
-)

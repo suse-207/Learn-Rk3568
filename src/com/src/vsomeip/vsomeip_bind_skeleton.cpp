@@ -34,7 +34,7 @@ namespace com
         {
             if (!vsomeipApp_)
             {
-                return Result<void>(false, "Invalid vsomeip application");
+                return Result<void>::FromError(ComErrc::kInvalidHandle);
             }
 
             // Request service for offering
@@ -42,7 +42,7 @@ namespace com
                 static_cast<vsomeip_v3::service_t>(serviceId_),
                 static_cast<vsomeip_v3::instance_t>(instanceId_));
 
-            return Result<void>(true);
+            return Result<void>::FromValue();
         }
 
         Result<void> VsomeipBindSkeleton::Deinit() noexcept
@@ -59,19 +59,19 @@ namespace com
                     static_cast<vsomeip_v3::instance_t>(instanceId_));
             }
 
-            return Result<void>(true);
+            return Result<void>::FromValue();
         }
 
         Result<void> VsomeipBindSkeleton::Offer() noexcept
         {
             if (!vsomeipApp_)
             {
-                return Result<void>(false, "Invalid vsomeip application");
+                return Result<void>::FromError(ComErrc::kInvalidHandle);
             }
 
             if (offered_)
             {
-                return Result<void>(true); // Already offered
+                return Result<void>::FromValue(); // Already offered
             }
 
             // Offer the service
@@ -80,14 +80,14 @@ namespace com
                 static_cast<vsomeip_v3::instance_t>(instanceId_));
 
             offered_ = true;
-            return Result<void>(true);
+            return Result<void>::FromValue();
         }
 
         Result<void> VsomeipBindSkeleton::StopOffer() noexcept
         {
             if (!vsomeipApp_ || !offered_)
             {
-                return Result<void>(true); // Not offered
+                return Result<void>::FromValue(); // Not offered
             }
 
             // Stop offering the service
@@ -96,7 +96,7 @@ namespace com
                 static_cast<vsomeip_v3::instance_t>(instanceId_));
 
             offered_ = false;
-            return Result<void>(true);
+            return Result<void>::FromValue();
         }
 
         char const *VsomeipBindSkeleton::GetBindRuntimeName() const noexcept
@@ -130,7 +130,8 @@ namespace com
                     auto payload = request->get_payload();
                     if (payload)
                     {
-                        requestData = payload->get_data();
+                        requestData.assign(payload->get_data(),
+                                           payload->get_data() + payload->get_length());
                     }
 
                     // Call handler
@@ -138,10 +139,10 @@ namespace com
                     handler(requestData, responseData);
 
                     // Create and send response
-                    auto response = vsomeipApp_->get_runtime()->create_response(request);
+                    auto response = vsomeip_v3::runtime::get()->create_response(request);
                     if (response)
                     {
-                        auto responsePayload = vsomeipApp_->get_runtime()->create_payload(responseData);
+                        auto responsePayload = vsomeip_v3::runtime::get()->create_payload(responseData);
                         if (responsePayload)
                         {
                             response->set_payload(responsePayload);
@@ -159,7 +160,7 @@ namespace com
             }
 
             // Create notification message
-            auto notification = vsomeipApp_->get_runtime()->create_notification();
+            auto notification = vsomeip_v3::runtime::get()->create_notification();
             if (!notification)
             {
                 return;
@@ -170,7 +171,7 @@ namespace com
             notification->set_method(static_cast<vsomeip_v3::event_t>(eventId));
 
             // Set payload
-            auto payload = vsomeipApp_->get_runtime()->create_payload(eventData);
+            auto payload = vsomeip_v3::runtime::get()->create_payload(eventData);
             if (payload)
             {
                 notification->set_payload(payload);

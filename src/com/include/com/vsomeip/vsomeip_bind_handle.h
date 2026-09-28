@@ -46,7 +46,7 @@ namespace com
             Result<std::vector<uint8_t>> SendRequest(
                 MethodIdentifier methodId,
                 std::vector<uint8_t> const &requestData,
-                Duration timeout) noexcept;
+                Duration timeout) noexcept override;
 
             /// @brief Send a request asynchronously
             /// @param[in] methodId Method identifier
@@ -55,7 +55,15 @@ namespace com
             void SendRequestAsync(
                 MethodIdentifier methodId,
                 std::vector<uint8_t> const &requestData,
-                std::function<void(Result<std::vector<uint8_t>>)> handler) noexcept;
+                std::function<void(Result<std::vector<uint8_t>>)> handler) noexcept override;
+
+            /// @brief Send a request asynchronously, returning an ara::com-style Future (P2)
+            /// @param[in] methodId Method identifier
+            /// @param[in] requestData Request data
+            /// @return Future that will be fulfilled with response data or error
+            ara::core::Future<std::vector<uint8_t>> SendRequestAsync(
+                MethodIdentifier methodId,
+                std::vector<uint8_t> const &requestData) noexcept;
 
             /// @brief Subscribe to an event group
             /// @param[in] eventGroupId Event group identifier

@@ -61,52 +61,58 @@ namespace com
             Skeleton(Skeleton const &) = delete;
             Skeleton &operator=(Skeleton const &) = delete;
 
-            /// @brief Initialize the skeleton
-            /// @param[in] instanceIdentifier Instance identifier
+            ServiceIdentifier const &GetServiceIdentifier() const noexcept
+            {
+                return serviceIdentifier_;
+            }
+
+            void SetServiceIdentifier(ServiceIdentifier serviceIdentifier) noexcept
+            {
+                serviceIdentifier_ = serviceIdentifier;
+            }
+
             Result<void> Init(InstanceIdentifier const &instanceIdentifier) noexcept
             {
                 std::lock_guard<std::mutex> lock(mutex_);
                 if (initialized_)
                 {
-                    return Result<void>(true);
+                    return Result<void>::FromValue();
                 }
-
                 instanceIdentifier_ = instanceIdentifier;
-
-                // Get binding runtimes and create bind skeletons
-                auto const &bindRuntimes = Runtime::GetInstance().GetBindRuntimes();
-                for (auto const &bindRuntime : bindRuntimes)
+                auto *runtime = Runtime::Get();
+                if (!runtime)
                 {
-                    std::vector<std::unique_ptr<BindSkeleton>> newBindSkeletons;
-                    bindRuntime->CreateBindSkeleton(*this, instanceIdentifier_, newBindSkeletons);
-
-                    for (auto &bs : newBindSkeletons)
+                    return Result<void>::FromError(ComErrc::kNotInitialized);
+                }
+                for (auto const &name : runtime->GetBindRuntimeNames())
+                {
+                    auto *bindRuntime = runtime->GetBindRuntime(name);
+                    if (bindRuntime)
                     {
-                        bindSkeletons_.push_back(std::move(bs));
+                        std::vector<std::unique_ptr<BindSkeleton>> newBindSkeletons;
+                        bindRuntime->CreateBindSkeleton(*this, instanceIdentifier_, newBindSkeletons);
+                        for (auto &bs : newBindSkeletons)
+                        {
+                            bindSkeletons_.push_back(std::move(bs));
+                        }
                     }
                 }
-
                 initialized_ = true;
-                return Result<void>(true);
+                return Result<void>::FromValue();
             }
 
-            /// @brief Deinitialize the skeleton
             Result<void> Deinit() noexcept
             {
                 std::lock_guard<std::mutex> lock(mutex_);
                 for (auto &bs : bindSkeletons_)
                 {
-                    if (bs)
-                    {
-                        bs->Deinit();
-                    }
+                    if (bs) { bs->Deinit(); }
                 }
                 bindSkeletons_.clear();
                 initialized_ = false;
-                return Result<void>(true);
+                return Result<void>::FromValue();
             }
 
-            /// @brief Offer the service on all protocols
             Result<void> Offer() noexcept
             {
                 std::lock_guard<std::mutex> lock(mutex_);
@@ -115,36 +121,29 @@ namespace com
                     if (bs)
                     {
                         auto result = bs->Offer();
-                        if (!result)
-                        {
-                            return result;
-                        }
+                        if (!result) { return result; }
                     }
                 }
-                return Result<void>(true);
+                return Result<void>::FromValue();
             }
 
-            /// @brief Stop offering the service on all protocols
             Result<void> StopOffer() noexcept
             {
                 std::lock_guard<std::mutex> lock(mutex_);
                 for (auto &bs : bindSkeletons_)
                 {
-                    if (bs)
-                    {
-                        bs->StopOffer();
-                    }
+                    if (bs) { bs->StopOffer(); }
                 }
-                return Result<void>(true);
+                return Result<void>::FromValue();
             }
 
-            /// @brief Get bind skeletons
             std::vector<std::unique_ptr<BindSkeleton>> &GetBindSkeletons() noexcept
             {
                 return bindSkeletons_;
             }
 
         protected:
+            ServiceIdentifier serviceIdentifier_{0};
             InstanceIdentifier instanceIdentifier_;
             std::vector<std::unique_ptr<BindSkeleton>> bindSkeletons_;
             mutable std::mutex mutex_;
@@ -154,29 +153,40 @@ namespace com
         /// @brief Service skeleton template
         /// @tparam T Service interface type (user-defined)
         /// @details Application layer inherits from this to implement services.
-        ///          This class is protocol-agnostic.
+        ///          P3: Optionally accepts an InstanceSpecifier for AUTOSAR-style identification.
         template <typename T>
-        class ServiceSkeleton : public Skeleton, public T
+        class ServiceSkeleton : public Skeleton
         {
         public:
-            /// @brief Constructor
-            /// @param[in] serviceIdentifier Service identifier
-            ServiceSkeleton(ServiceIdentifier const &serviceIdentifier) noexcept
-                : serviceIdentifier_(serviceIdentifier)
+            /// @brief Constructor with numeric IDs
+            ServiceSkeleton(ServiceIdentifier const &serviceIdentifier,
+                            InstanceIdentifier const &instanceIdentifier) noexcept
+                : instanceSpecifier_{"unknown"}
             {
+                SetServiceIdentifier(serviceIdentifier);
+                instanceIdentifier_ = instanceIdentifier;
             }
 
-            /// @brief Destructor
+            /// @brief Constructor with InstanceSpecifier (P3)
+            ServiceSkeleton(InstanceSpecifier const &specifier,
+                            ServiceIdentifier const &serviceIdentifier,
+                            InstanceIdentifier const &instanceIdentifier) noexcept
+                : instanceSpecifier_(specifier)
+            {
+                SetServiceIdentifier(serviceIdentifier);
+                instanceIdentifier_ = instanceIdentifier;
+            }
+
             ~ServiceSkeleton() override = default;
 
-            /// @brief Get service identifier
-            ServiceIdentifier const &GetServiceIdentifier() const noexcept
+            /// @brief Get instance specifier (P3)
+            InstanceSpecifier const &GetInstanceSpecifier() const noexcept
             {
-                return serviceIdentifier_;
+                return instanceSpecifier_;
             }
 
         protected:
-            ServiceIdentifier serviceIdentifier_;
+            InstanceSpecifier instanceSpecifier_;
         };
 
     } // namespace skeleton

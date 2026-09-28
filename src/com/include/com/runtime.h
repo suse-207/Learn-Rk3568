@@ -3,14 +3,17 @@
 
 /// @file       runtime.h
 /// @brief      Communication runtime - manages binding layer instances
-/// @details    Singleton that manages multiple BindRuntime implementations
+/// @details    Singleton that manages multiple BindRuntime implementations.
+///             P3: Added InstanceSpecifier → (serviceId, instanceId) mapping.
 
 #pragma once
 
+#include "com/types.h"
 #include "com/bind_runtime.h"
 #include <memory>
 #include <vector>
 #include <string>
+#include <map>
 #include <mutex>
 
 namespace com
@@ -19,44 +22,54 @@ namespace com
     /// @brief Communication runtime singleton
     /// @details Manages multiple binding layer runtime instances.
     ///          Supports registering multiple protocol implementations (vsomeip, dds, etc.)
+    ///          P3: Provides InstanceSpecifier → numeric ID resolution.
     class Runtime
     {
     public:
-        /// @brief Get the singleton instance
-        static Runtime &GetInstance() noexcept;
+        /// @brief Get the global runtime instance (pointer, may be null)
+        static Runtime *Get() noexcept;
 
-        /// @brief Initialize communication
-        static Result<void> Initialize() noexcept;
+        /// @brief Initialize the runtime
+        Result<void> Init() noexcept;
 
-        /// @brief Deinitialize communication
-        static Result<void> Deinitialize() noexcept;
+        /// @brief Deinitialize the runtime
+        Result<void> Deinit() noexcept;
+
+        /// @brief Start all registered bind runtimes (blocking)
+        void Start() noexcept;
+
+        /// @brief Stop all registered bind runtimes
+        void Stop() noexcept;
 
         /// @brief Binding runtime unique pointer type
         using BindRuntimePtr = std::unique_ptr<BindRuntime>;
 
-        /// @brief Binding runtime collection type
-        using BindRuntimes = std::vector<BindRuntimePtr>;
-
         /// @brief Register a binding layer runtime instance
-        /// @param[in] bindRuntime Binding layer runtime instance
-        /// @details Call this at startup to register protocol implementations.
-        ///          Multiple implementations can be registered for multi-protocol support.
-        void RegisterBindRuntime(BindRuntimePtr &&bindRuntime) noexcept;
+        Result<void> RegisterBindRuntime(std::unique_ptr<BindRuntime> bindRuntime) noexcept;
 
-        /// @brief Get the set of binding layer runtime instances
-        BindRuntimes const &GetBindRuntimes() const noexcept;
+        /// @brief Unregister a binding layer runtime by name
+        Result<void> UnregisterBindRuntime(char const *name) noexcept;
 
-        /// @brief Get process name
-        std::string const &GetProcessName() const noexcept;
+        /// @brief Get a binding layer runtime by name
+        BindRuntime *GetBindRuntime(char const *name) noexcept;
 
-        /// @brief Set process name
-        void SetProcessName(std::string const &name) noexcept;
+        /// @brief Get all registered bind runtime names
+        std::vector<char const *> GetBindRuntimeNames() const noexcept;
 
-        /// @brief Resolve instance identifiers from instance specifier string
-        /// @param[in] instanceSpecifier Instance specifier string (e.g., "/instance/my_service")
-        /// @return Instance identifier container
-        static Result<InstanceIdentifierContainer> ResolveInstanceIDs(
-            std::string const &instanceSpecifier) noexcept;
+        // -- P3: InstanceSpecifier → (serviceId, instanceId) mapping --
+
+        /// @brief Register a mapping from InstanceSpecifier to numeric IDs
+        void RegisterServiceMapping(
+            InstanceSpecifier const &specifier,
+            ServiceIdentifier serviceId,
+            InstanceIdentifier instanceId) noexcept;
+
+        /// @brief Resolve an InstanceSpecifier to numeric IDs
+        /// @return true if found, false otherwise
+        bool ResolveServiceMapping(
+            InstanceSpecifier const &specifier,
+            ServiceIdentifier &serviceId,
+            InstanceIdentifier &instanceId) const noexcept;
 
     private:
         Runtime() noexcept;
@@ -65,8 +78,16 @@ namespace com
         Runtime(Runtime const &) = delete;
         Runtime &operator=(Runtime const &) = delete;
 
-        class Impl;
-        std::unique_ptr<Impl> impl_;
+        std::map<std::string, std::unique_ptr<BindRuntime>> bindRuntimes_;
+        bool initialized_{false};
+
+        // P3: InstanceSpecifier → (serviceId, instanceId) mapping
+        struct ServiceMapping
+        {
+            ServiceIdentifier serviceId;
+            InstanceIdentifier instanceId;
+        };
+        std::map<std::string, ServiceMapping> serviceMappings_;
     };
 
 } // namespace com

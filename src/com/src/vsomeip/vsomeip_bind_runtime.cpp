@@ -31,28 +31,33 @@ namespace com
 
             Result<void> Init() noexcept
             {
+                if (initialized_)
+                {
+                    return Result<void>::FromValue();
+                }
+
                 // Get vsomeip runtime singleton
                 vsomeipRuntime_ = vsomeip_v3::runtime::get();
                 if (!vsomeipRuntime_)
                 {
-                    return Result<void>(false, "Failed to get vsomeip runtime");
+                    return Result<void>::FromError(ComErrc::kInternalError);
                 }
 
                 // Create vsomeip application
                 vsomeipApp_ = vsomeipRuntime_->create_application(applicationName_);
                 if (!vsomeipApp_)
                 {
-                    return Result<void>(false, "Failed to create vsomeip application");
+                    return Result<void>::FromError(ComErrc::kInternalError);
                 }
 
                 // Initialize the application
                 if (!vsomeipApp_->init())
                 {
-                    return Result<void>(false, "Failed to initialize vsomeip application");
+                    return Result<void>::FromError(ComErrc::kNotInitialized);
                 }
 
                 initialized_ = true;
-                return Result<void>(true);
+                return Result<void>::FromValue();
             }
 
             Result<void> Deinit() noexcept
@@ -64,7 +69,7 @@ namespace com
                 }
                 vsomeipRuntime_.reset();
                 initialized_ = false;
-                return Result<void>(true);
+                return Result<void>::FromValue();
             }
 
             void Start() noexcept
@@ -127,12 +132,7 @@ namespace com
             }
 
             // Get service identifier from skeleton
-            auto *serviceSkeleton = dynamic_cast<skeleton::ServiceSkeleton<void> *>(&skeleton);
-            ServiceIdentifier serviceId = 0;
-            if (serviceSkeleton)
-            {
-                serviceId = serviceSkeleton->GetServiceIdentifier();
-            }
+            ServiceIdentifier serviceId = skeleton.GetServiceIdentifier();
 
             // Create vsomeip bind skeleton
             auto bindSkeleton = std::make_unique<VsomeipBindSkeleton>(
