@@ -4,7 +4,7 @@
 #include <cstdio>
 #include <ctime>
 #include <mutex>
-
+#include <string>
 namespace {
 
 std::mutex g_log_mutex;
