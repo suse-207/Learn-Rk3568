@@ -9,7 +9,7 @@ project(com VERSION 1.0.0 LANGUAGES CXX)
 
 # Options
 option(COM_WITH_VSOMEIP "Build with vsomeip support" ON)
-option(COM_BUILD_TESTS "Build tests" OFF)
+option(COM_BUILD_EXAMPLES "Build com examples" OFF)
 
 # C++ standard
 set(CMAKE_CXX_STANDARD 17)
@@ -58,30 +58,36 @@ target_include_directories(com
         $<INSTALL_INTERFACE:include>
 )
 
-# Link dependencies
+# Link dependencies. Prefer the in-project vsomeip3 target, otherwise fall back
+# to an installed CMake package or pkg-config. Fail loudly instead of silently
+# building the vsomeip binding without its dependency.
 if(COM_WITH_VSOMEIP)
-    # Check if vsomeip3 target exists (built as part of this project)
     if(TARGET vsomeip3)
         target_link_libraries(com PUBLIC vsomeip3)
-        target_compile_definitions(com PUBLIC COM_WITH_VSOMEIP)
     else()
-        # Try to find vsomeip as installed package
         find_package(vsomeip3 QUIET)
         if(vsomeip3_FOUND)
             target_link_libraries(com PUBLIC vsomeip3::vsomeip3)
-            target_compile_definitions(com PUBLIC COM_WITH_VSOMEIP)
         else()
-            # Try pkg-config
             find_package(PkgConfig QUIET)
             if(PKG_CONFIG_FOUND)
-                pkg_check_modules(VSOMEIP QUIET vsomeip3)
-                if(VSOMEIP_FOUND)
-                    target_link_libraries(com PUBLIC ${VSOMEIP_LIBRARIES})
-                    target_include_directories(com PUBLIC ${VSOMEIP_INCLUDE_DIRS})
-                    target_compile_definitions(com PUBLIC COM_WITH_VSOMEIP)
-                endif()
+                pkg_check_modules(VSOMEIP vsomeip3)
+            endif()
+            if(VSOMEIP_FOUND)
+                target_link_libraries(com PUBLIC ${VSOMEIP_LIBRARIES})
+                target_include_directories(com PUBLIC ${VSOMEIP_INCLUDE_DIRS})
+            else()
+                message(FATAL_ERROR
+                    "COM_WITH_VSOMEIP=ON but vsomeip3 was not found "
+                    "(no in-project target, CMake package, or pkg-config module).")
             endif()
         endif()
     endif()
+    target_compile_definitions(com PUBLIC COM_WITH_VSOMEIP)
+endif()
+
+# Examples
+if(COM_BUILD_EXAMPLES AND COM_WITH_VSOMEIP)
+    add_subdirectory(examples)
 endif()
 

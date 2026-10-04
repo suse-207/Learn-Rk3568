@@ -9,6 +9,7 @@
 
 #include "com/types.h"
 #include "com/runtime.h"
+#include <functional>
 #include <memory>
 #include <vector>
 #include <mutex>
@@ -44,6 +45,13 @@ namespace com
 
             /// @brief Stop offering the service
             virtual Result<void> StopOffer() noexcept = 0;
+
+            /// @brief Register a method handler
+            /// @param[in] methodId Method identifier
+            /// @param[in] handler Called with (request, response)
+            virtual void RegisterMethodHandler(
+                MethodIdentifier methodId,
+                std::function<void(std::vector<uint8_t> const &, std::vector<uint8_t> &)> handler) noexcept = 0;
 
             /// @brief Get the binding runtime name
             virtual char const *GetBindRuntimeName() const noexcept = 0;
@@ -150,11 +158,9 @@ namespace com
             bool initialized_{false};
         };
 
-        /// @brief Service skeleton template
-        /// @tparam T Service interface type (user-defined)
+        /// @brief Service skeleton base class
         /// @details Application layer inherits from this to implement services.
         ///          P3: Optionally accepts an InstanceSpecifier for AUTOSAR-style identification.
-        template <typename T>
         class ServiceSkeleton : public Skeleton
         {
         public:

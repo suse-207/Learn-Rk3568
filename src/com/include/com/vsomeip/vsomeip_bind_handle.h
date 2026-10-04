@@ -48,33 +48,29 @@ namespace com
                 std::vector<uint8_t> const &requestData,
                 Duration timeout) noexcept override;
 
-            /// @brief Send a request asynchronously
-            /// @param[in] methodId Method identifier
-            /// @param[in] requestData Request data
-            /// @param[in] handler Response handler callback
-            void SendRequestAsync(
-                MethodIdentifier methodId,
-                std::vector<uint8_t> const &requestData,
-                std::function<void(Result<std::vector<uint8_t>>)> handler) noexcept override;
-
             /// @brief Send a request asynchronously, returning an ara::com-style Future (P2)
             /// @param[in] methodId Method identifier
             /// @param[in] requestData Request data
             /// @return Future that will be fulfilled with response data or error
-            ara::core::Future<std::vector<uint8_t>> SendRequestAsync(
+            Future<std::vector<uint8_t>> SendRequestAsync(
                 MethodIdentifier methodId,
-                std::vector<uint8_t> const &requestData) noexcept;
+                std::vector<uint8_t> const &requestData) noexcept override;
 
-            /// @brief Subscribe to an event group
-            /// @param[in] eventGroupId Event group identifier
+            /// @brief Subscribe to an event
+            /// @param[in] eventId Event identifier
+            /// @param[in] eventGroupId Event group identifier the event belongs to
             /// @param[in] handler Event notification handler
             void SubscribeEvent(
-                EventIdentifier eventGroupId,
+                EventIdentifier eventId,
+                EventGroupIdentifier eventGroupId,
                 std::function<void(std::vector<uint8_t> const &)> handler) noexcept;
 
-            /// @brief Unsubscribe from an event group
-            /// @param[in] eventGroupId Event group identifier
-            void UnsubscribeEvent(EventIdentifier eventGroupId) noexcept;
+            /// @brief Unsubscribe from an event
+            /// @param[in] eventId Event identifier
+            /// @param[in] eventGroupId Event group identifier the event belongs to
+            void UnsubscribeEvent(
+                EventIdentifier eventId,
+                EventGroupIdentifier eventGroupId) noexcept;
 
             /// @brief Get service identifier
             ServiceIdentifier GetServiceId() const noexcept { return serviceId_; }

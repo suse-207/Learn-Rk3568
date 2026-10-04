@@ -11,13 +11,14 @@
 #include <iostream>
 #include <thread>
 #include <chrono>
+#include <cstring>
 
 // Example service skeleton
-class ExampleServiceSkeleton : public com::skeleton::ServiceSkeleton<ExampleServiceSkeleton>
+class ExampleServiceSkeleton : public com::skeleton::ServiceSkeleton
 {
 public:
     ExampleServiceSkeleton() noexcept
-        : com::skeleton::ServiceSkeleton<ExampleServiceSkeleton>(0x1234, 1)
+        : com::skeleton::ServiceSkeleton(0x1234, 1)
     {
     }
 
@@ -88,15 +89,21 @@ int main(int argc, char *argv[])
 
     // Create bind skeleton for vsomeip
     std::vector<std::unique_ptr<com::skeleton::BindSkeleton>> bindSkeletons;
-    auto *bindRuntime = runtime->GetBindRuntime("vsomeip");
-    if (bindRuntime)
-    {
-        bindRuntime->CreateBindSkeleton(skeleton, 1, bindSkeletons);
-    }
+    bindRuntime->CreateBindSkeleton(skeleton, 1, bindSkeletons);
 
-    // Offer the service
+    // Register method handlers and offer the service
     for (auto &bs : bindSkeletons)
     {
+        bs->RegisterMethodHandler(0x0001,
+            [&skeleton](std::vector<uint8_t> const &request, std::vector<uint8_t> &response)
+            {
+                skeleton.OnEchoRequest(request, response);
+            });
+        bs->RegisterMethodHandler(0x0002,
+            [&skeleton](std::vector<uint8_t> const &request, std::vector<uint8_t> &response)
+            {
+                skeleton.OnGetTemperatureRequest(request, response);
+            });
         bs->Offer();
     }
 

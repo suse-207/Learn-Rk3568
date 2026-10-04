@@ -26,7 +26,7 @@ namespace com
     class Runtime
     {
     public:
-        /// @brief Get the global runtime instance (pointer, may be null)
+        /// @brief Get the global runtime instance (never null)
         static Runtime *Get() noexcept;
 
         /// @brief Initialize the runtime
@@ -48,13 +48,14 @@ namespace com
         Result<void> RegisterBindRuntime(std::unique_ptr<BindRuntime> bindRuntime) noexcept;
 
         /// @brief Unregister a binding layer runtime by name
-        Result<void> UnregisterBindRuntime(char const *name) noexcept;
+        Result<void> UnregisterBindRuntime(std::string const &name) noexcept;
 
         /// @brief Get a binding layer runtime by name
-        BindRuntime *GetBindRuntime(char const *name) noexcept;
+        /// @return Pointer into the runtime, valid until the next registration change.
+        BindRuntime *GetBindRuntime(std::string const &name) noexcept;
 
         /// @brief Get all registered bind runtime names
-        std::vector<char const *> GetBindRuntimeNames() const noexcept;
+        std::vector<std::string> GetBindRuntimeNames() const noexcept;
 
         // -- P3: InstanceSpecifier → (serviceId, instanceId) mapping --
 
@@ -78,8 +79,8 @@ namespace com
         Runtime(Runtime const &) = delete;
         Runtime &operator=(Runtime const &) = delete;
 
+        mutable std::mutex mutex_;
         std::map<std::string, std::unique_ptr<BindRuntime>> bindRuntimes_;
-        bool initialized_{false};
 
         // P3: InstanceSpecifier → (serviceId, instanceId) mapping
         struct ServiceMapping

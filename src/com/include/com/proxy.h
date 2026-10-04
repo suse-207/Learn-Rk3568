@@ -44,11 +44,10 @@ namespace com
                 std::vector<uint8_t> const &requestData,
                 Duration timeout) noexcept = 0;
 
-            /// @brief Send a request asynchronously
-            virtual void SendRequestAsync(
+            /// @brief Send a request asynchronously, returning a Future (P2: ara::com-style)
+            virtual Future<std::vector<uint8_t>> SendRequestAsync(
                 MethodIdentifier methodId,
-                std::vector<uint8_t> const &requestData,
-                std::function<void(Result<std::vector<uint8_t>>)> handler) noexcept = 0;
+                std::vector<uint8_t> const &requestData) noexcept = 0;
         };
 
         /// @brief Binding layer proxy abstract interface
@@ -72,12 +71,10 @@ namespace com
             virtual char const *GetBindRuntimeName() const noexcept = 0;
         };
 
-        /// @brief Service proxy base class
-        /// @tparam T Service interface type (user-defined)
+        /// @brief Service proxy class
         /// @details Application layer uses this to access remote services.
         ///          P3: Optionally accepts an InstanceSpecifier for AUTOSAR-style identification.
-        template <typename T>
-        class ServiceProxy : public T
+        class ServiceProxy
         {
         public:
             /// @brief Constructor with numeric IDs
@@ -99,7 +96,7 @@ namespace com
             {
             }
 
-            ~ServiceProxy() override = default;
+            ~ServiceProxy() = default;
 
             Result<void> Init() noexcept
             {

@@ -100,13 +100,13 @@ int main()
                     auto result = handle->SendRequest(kMethodId, requestData, std::chrono::seconds(5));
                     if (result)
                     {
-                        std::cout << "Response received with " << result.value().size() << " bytes\n";
-                        std::string response(result.value().begin(), result.value().end());
+                        std::cout << "Response received with " << result.Value().size() << " bytes\n";
+                        std::string response(result.Value().begin(), result.Value().end());
                         std::cout << "Response: " << response << "\n";
                     }
                     else
                     {
-                        std::cerr << "Request failed: " << result.error().message << "\n";
+                        std::cerr << "Request failed: " << result.Error().Message() << "\n";
                     }
 
                     // Unregister and stop after receiving response

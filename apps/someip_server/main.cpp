@@ -29,11 +29,11 @@ namespace
 } // namespace
 
 /// @brief Service skeleton for version service
-class VersionServiceSkeleton : public com::skeleton::ServiceSkeleton<VersionServiceSkeleton>
+class VersionServiceSkeleton : public com::skeleton::ServiceSkeleton
 {
 public:
     explicit VersionServiceSkeleton(std::string version) noexcept
-        : com::skeleton::ServiceSkeleton<VersionServiceSkeleton>(kServiceId, kInstanceId),
+        : com::skeleton::ServiceSkeleton(kServiceId, kInstanceId),
           version_(std::move(version))
     {
     }
@@ -120,11 +120,16 @@ int main(int argc, char **argv)
 
     // Create bind skeletons
     std::vector<std::unique_ptr<com::skeleton::BindSkeleton>> bindSkeletons;
-    bindRuntime->CreateBindSkeleton(skeleton, 1, bindSkeletons);
+    bindRuntime->CreateBindSkeleton(skeleton, kInstanceId, bindSkeletons);
 
-    // Offer the service
+    // Register method handlers and offer the service
     for (auto &bs : bindSkeletons)
     {
+        bs->RegisterMethodHandler(kMethodId,
+            [&skeleton](std::vector<uint8_t> const &request, std::vector<uint8_t> &response)
+            {
+                skeleton.OnGetVersionRequest(request, response);
+            });
         bs->Offer();
     }
 

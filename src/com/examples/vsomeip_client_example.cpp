@@ -11,6 +11,7 @@
 #include <iostream>
 #include <thread>
 #include <chrono>
+#include <cstring>
 
 int main(int argc, char *argv[])
 {
@@ -78,20 +79,20 @@ int main(int argc, char *argv[])
                     auto result = handle->SendRequest(0x0001, requestData, std::chrono::seconds(5));
                     if (result)
                     {
-                        std::cout << "Echo response received with " << result.value().size() << " bytes" << std::endl;
+                        std::cout << "Echo response received with " << result.Value().size() << " bytes" << std::endl;
                     }
                     else
                     {
-                        std::cerr << "Echo request failed: " << result.error().message << std::endl;
+                        std::cerr << "Echo request failed: " << result.Error().Message() << std::endl;
                     }
 
                     // Send temperature request
                     std::vector<uint8_t> tempRequest;
                     auto tempResult = handle->SendRequest(0x0002, tempRequest, std::chrono::seconds(5));
-                    if (tempResult && tempResult.value().size() >= sizeof(float))
+                    if (tempResult && tempResult.Value().size() >= sizeof(float))
                     {
                         float temperature;
-                        std::memcpy(&temperature, tempResult.value().data(), sizeof(float));
+                        std::memcpy(&temperature, tempResult.Value().data(), sizeof(float));
                         std::cout << "Temperature: " << temperature << " degrees" << std::endl;
                     }
                 }

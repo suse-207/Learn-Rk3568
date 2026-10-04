@@ -54,17 +54,11 @@ namespace com
         /// @brief Destructor
         virtual ~BindRuntime() noexcept = default;
 
-        /// @brief Copy constructor
-        BindRuntime(BindRuntime const &other) noexcept = default;
-
-        /// @brief Move constructor
-        BindRuntime(BindRuntime &&other) noexcept = default;
-
-        /// @brief Copy assignment operator
-        BindRuntime &operator=(BindRuntime const &other) noexcept = default;
-
-        /// @brief Move assignment operator
-        BindRuntime &operator=(BindRuntime &&other) noexcept = default;
+        // Polymorphic base: non-copyable / non-movable to prevent slicing.
+        BindRuntime(BindRuntime const &) = delete;
+        BindRuntime(BindRuntime &&) = delete;
+        BindRuntime &operator=(BindRuntime const &) = delete;
+        BindRuntime &operator=(BindRuntime &&) = delete;
 
         /// @brief Initialize the binding runtime
         virtual Result<void> Init() noexcept { return Result<void>::FromValue(); }

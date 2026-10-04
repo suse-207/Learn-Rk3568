@@ -5,14 +5,9 @@
 /// @brief      Communication runtime implementation
 
 #include "com/runtime.h"
-#include "com/bind_runtime.h"
-#include <stdexcept>
 
 namespace com
 {
-
-    /// @brief Global runtime instance
-    static Runtime *g_runtime = nullptr;
 
     Runtime::Runtime() noexcept = default;
 
@@ -32,51 +27,76 @@ namespace com
     Runtime *Runtime::Get() noexcept
     {
         static Runtime instance;
-        g_runtime = &instance;
         return &instance;
     }
 
     Result<void> Runtime::Init() noexcept
     {
-        initialized_ = true;
         return Result<void>::FromValue();
     }
 
     Result<void> Runtime::Deinit() noexcept
     {
-        // Deinit all bind runtimes
-        for (auto &[name, rt] : bindRuntimes_)
+        // Collect under the lock, then Deinit outside it so a blocking or re-entrant
+        // Deinit cannot deadlock.
+        std::vector<BindRuntime *> runtimes;
         {
-            if (rt)
+            std::lock_guard<std::mutex> lock(mutex_);
+            runtimes.reserve(bindRuntimes_.size());
+            for (auto &[name, rt] : bindRuntimes_)
             {
-                rt->Deinit();
+                if (rt)
+                {
+                    runtimes.push_back(rt.get());
+                }
             }
         }
-        initialized_ = false;
+        for (auto *rt : runtimes)
+        {
+            rt->Deinit();
+        }
         return Result<void>::FromValue();
     }
 
     void Runtime::Start() noexcept
     {
-        // Start all bind runtimes
-        for (auto &[name, rt] : bindRuntimes_)
+        // Start is blocking; collect under the lock and run outside it so Stop() can
+        // acquire the lock and interrupt the loop.
+        std::vector<BindRuntime *> runtimes;
         {
-            if (rt)
+            std::lock_guard<std::mutex> lock(mutex_);
+            runtimes.reserve(bindRuntimes_.size());
+            for (auto &[name, rt] : bindRuntimes_)
             {
-                rt->Start();
+                if (rt)
+                {
+                    runtimes.push_back(rt.get());
+                }
             }
+        }
+        for (auto *rt : runtimes)
+        {
+            rt->Start();
         }
     }
 
     void Runtime::Stop() noexcept
     {
-        // Stop all bind runtimes
-        for (auto &[name, rt] : bindRuntimes_)
+        std::vector<BindRuntime *> runtimes;
         {
-            if (rt)
+            std::lock_guard<std::mutex> lock(mutex_);
+            runtimes.reserve(bindRuntimes_.size());
+            for (auto &[name, rt] : bindRuntimes_)
             {
-                rt->Stop();
+                if (rt)
+                {
+                    runtimes.push_back(rt.get());
+                }
             }
+        }
+        for (auto *rt : runtimes)
+        {
+            rt->Stop();
         }
     }
 
@@ -87,13 +107,14 @@ namespace com
             return Result<void>::FromError(ComErrc::kInvalidArgument);
         }
 
-        auto name = bindRuntime->GetName();
+        char const *name = bindRuntime->GetName();
         if (!name)
         {
             return Result<void>::FromError(ComErrc::kInvalidName);
         }
+        std::string key(name);
 
-        // Initialize the bind runtime
+        // Initialize the bind runtime before publishing it.
         auto result = bindRuntime->Init();
         if (!result)
         {
@@ -101,17 +122,14 @@ namespace com
         }
 
         // Store the bind runtime
-        bindRuntimes_[name] = std::move(bindRuntime);
+        std::lock_guard<std::mutex> lock(mutex_);
+        bindRuntimes_[std::move(key)] = std::move(bindRuntime);
         return Result<void>::FromValue();
     }
 
-    Result<void> Runtime::UnregisterBindRuntime(char const *name) noexcept
+    Result<void> Runtime::UnregisterBindRuntime(std::string const &name) noexcept
     {
-        if (!name)
-        {
-            return Result<void>::FromError(ComErrc::kInvalidName);
-        }
-
+        std::lock_guard<std::mutex> lock(mutex_);
         auto it = bindRuntimes_.find(name);
         if (it == bindRuntimes_.end())
         {
@@ -126,13 +144,9 @@ namespace com
         return Result<void>::FromValue();
     }
 
-    BindRuntime *Runtime::GetBindRuntime(char const *name) noexcept
+    BindRuntime *Runtime::GetBindRuntime(std::string const &name) noexcept
     {
-        if (!name)
-        {
-            return nullptr;
-        }
-
+        std::lock_guard<std::mutex> lock(mutex_);
         auto it = bindRuntimes_.find(name);
         if (it != bindRuntimes_.end())
         {
@@ -141,13 +155,14 @@ namespace com
         return nullptr;
     }
 
-    std::vector<char const *> Runtime::GetBindRuntimeNames() const noexcept
+    std::vector<std::string> Runtime::GetBindRuntimeNames() const noexcept
     {
-        std::vector<char const *> names;
+        std::lock_guard<std::mutex> lock(mutex_);
+        std::vector<std::string> names;
         names.reserve(bindRuntimes_.size());
         for (auto const &[name, rt] : bindRuntimes_)
         {
-            names.push_back(name.c_str());
+            names.push_back(name);
         }
         return names;
     }
@@ -160,7 +175,9 @@ namespace com
         InstanceIdentifier instanceId) noexcept
     {
         auto sv = specifier.ToString();
-        serviceMappings_[std::string(sv.data(), sv.size())] = {serviceId, instanceId};
+        std::string key(sv.data(), sv.size());
+        std::lock_guard<std::mutex> lock(mutex_);
+        serviceMappings_[std::move(key)] = {serviceId, instanceId};
     }
 
     bool Runtime::ResolveServiceMapping(
@@ -169,7 +186,9 @@ namespace com
         InstanceIdentifier &instanceId) const noexcept
     {
         auto sv = specifier.ToString();
-        auto it = serviceMappings_.find(std::string(sv.data(), sv.size()));
+        std::string key(sv.data(), sv.size());
+        std::lock_guard<std::mutex> lock(mutex_);
+        auto it = serviceMappings_.find(key);
         if (it != serviceMappings_.end())
         {
             serviceId = it->second.serviceId;

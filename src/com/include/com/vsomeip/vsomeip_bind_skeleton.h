@@ -49,7 +49,7 @@ namespace com
             /// @param[in] handler Method handler callback
             void RegisterMethodHandler(
                 MethodIdentifier methodId,
-                std::function<void(std::vector<uint8_t> const &, std::vector<uint8_t> &)> handler) noexcept;
+                std::function<void(std::vector<uint8_t> const &, std::vector<uint8_t> &)> handler) noexcept override;
 
             /// @brief Send event notification
             /// @param[in] eventId Event identifier
