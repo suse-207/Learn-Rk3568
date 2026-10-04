@@ -31,7 +31,8 @@ target_include_directories(platform_core PUBLIC
 
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED)
-target_link_libraries(platform_core PUBLIC Threads::Threads OpenSSL::Crypto)
+find_package(CURL REQUIRED)
+target_link_libraries(platform_core PUBLIC Threads::Threads OpenSSL::Crypto CURL::libcurl)
 
 add_library(capi_common STATIC
     ${CAPI_CORE_SRC}
@@ -78,3 +79,11 @@ set_source_files_properties(${CAPI_UDS_SRC}
 
 # Communication layer (ara::com-style)
 add_subdirectory(com)
+
+# UCM transport adapter: SOME-IP TransferData over the com layer
+add_library(ucm STATIC
+    ucm/ucm_proxy.cpp
+    ucm/ucm_service_skeleton.cpp
+)
+target_include_directories(ucm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(ucm PUBLIC platform_core com)

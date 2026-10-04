@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "UCM 风格 OTA 升级架构",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "viewBox": [1180, 560]
+  },
+  "components": [
+    { "id": "cloud", "type": "external", "label": "OTA 云后台", "sublabel": "HTTPS 软件包源", "pos": [40, 220], "size": [130, 60] },
+    { "id": "update-agent", "type": "backend", "label": "Update Agent", "sublabel": "libcurl 下载 + 打包签名", "pos": [210, 220], "size": [160, 60] },
+    { "id": "someip", "type": "messagebus", "label": "SOME-IP 总线", "sublabel": "ara::com · TransferData", "pos": [410, 220], "size": [150, 60] },
+    { "id": "ucm", "type": "backend", "label": "目标 UCM", "sublabel": "17 方法 · 收字节写 .zip", "pos": [600, 220], "size": [140, 60] },
+    { "id": "ota", "type": "backend", "label": "OtaManager", "sublabel": "校验 · 装槽 · A/B 切换", "pos": [780, 220], "size": [140, 60] },
+    { "id": "storage", "type": "database", "label": "槽位 / 版本 / 持久化", "sublabel": "Slot · Boot · Version · .meta", "pos": [960, 220], "size": [160, 60] },
+    { "id": "uds", "type": "external", "label": "UDS 诊断刷写", "sublabel": "0x34/36/37 · 未接入", "pos": [780, 430], "size": [150, 60] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "车外（WAN）", "wraps": ["cloud"] },
+    { "kind": "region", "label": "车内（车载以太网）", "wraps": ["update-agent", "someip", "ucm", "ota", "storage", "uds"] }
+  ],
+  "connections": [
+    { "id": "c1", "from": "cloud", "to": "update-agent", "label": "HTTPS 下载", "variant": "emphasis", "labelDy": 60 },
+    { "id": "c2", "from": "update-agent", "to": "someip", "label": "TransferData", "labelDy": 60 },
+    { "id": "c3", "from": "someip", "to": "ucm", "label": "SOME-IP 调用", "labelDy": 60 },
+    { "id": "c4", "from": "ucm", "to": "ota", "label": "ProcessSwPackage", "labelDy": 60 },
+    { "id": "c5", "from": "ota", "to": "storage", "label": "装槽 / 切槽", "labelDy": 60 },
+    { "id": "c6", "from": "uds", "to": "ota", "label": "诊断刷写 · 未接入", "variant": "dashed", "fromSide": "top", "toSide": "bottom" }
+  ]
+}
