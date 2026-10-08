@@ -46,15 +46,19 @@ endif()
 
 # Create library
 add_library(com ${COM_SOURCES} ${COM_HEADERS})
-if(TARGET capi_common)
-    target_link_libraries(com PUBLIC capi_common)
+# ara_core provides the ara/core/* + phsl/* headers and their few out-of-line
+# symbols (ara::core::Abort, phsl::bad_variant_access, ...). It also exports the
+# ara-core include directory publicly, so the BUILD_INTERFACE path below is only
+# kept as a fallback for standalone builds of this sub-project.
+if(TARGET ara_core)
+    target_link_libraries(com PUBLIC ara_core)
 endif()
 
 # Include directories
 target_include_directories(com
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../common/capi/core-types/include>
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../common/ara-core/include>
         $<INSTALL_INTERFACE:include>
 )
 

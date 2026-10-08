@@ -4,6 +4,10 @@
 add_executable(doip_server doip_server/main.cpp)
 target_link_libraries(doip_server PRIVATE platform_core)
 
+# CAPI-derived DoIP/UDS server demo
+add_executable(capi_diag_server capi_diag_server/main.cpp)
+target_link_libraries(capi_diag_server PRIVATE capi_doip capi_uds)
+
 # OTA demo
 add_executable(ota_demo ota_demo/main.cpp)
 target_link_libraries(ota_demo PRIVATE platform_core)

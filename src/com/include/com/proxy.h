@@ -13,6 +13,8 @@
 #include <functional>
 #include <vector>
 #include <mutex>
+#include <thread>
+#include <chrono>
 #include <condition_variable>
 
 namespace com
