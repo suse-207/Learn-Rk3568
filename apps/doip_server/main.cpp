@@ -63,8 +63,6 @@ int main(int argc, char** argv) {
     identity.general_inactivity_timeout = std::chrono::milliseconds(cfg.general_inactivity_ms);
     identity.alive_check_timeout = std::chrono::milliseconds(cfg.alive_check_timeout_ms);
     doip.set_identity(identity);
-    doip.set_version("1.0.0");
-    doip.set_download_dir(cfg.download_dir);
     server.set_data_handler(
         [&doip](int fd, const char* data, std::size_t len) { doip.on_data(fd, data, len); });
     server.set_disconnect_handler([&doip](int fd) { doip.erase_client(fd); });

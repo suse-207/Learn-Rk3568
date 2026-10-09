@@ -3,6 +3,7 @@ file(GLOB_RECURSE CORE_SRC CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/common/*.cc"
     "${CMAKE_CURRENT_SOURCE_DIR}/net/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/doip/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/diag/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/uds/*.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/ota/*.cpp")
 # NOTE: "common/ara-core" MUST stay excluded. Its sources are compiled into the
@@ -25,6 +26,7 @@ add_library(platform_core STATIC
 )
 target_include_directories(platform_core PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/uds/capi/isoft-uds/src/server/include
 )
 
 find_package(Threads REQUIRED)
@@ -93,6 +95,8 @@ target_link_libraries(capi_uds PUBLIC capi_common)
 target_compile_definitions(capi_uds PRIVATE _GNU_SOURCE)
 set_source_files_properties(${CAPI_UDS_SRC}
     PROPERTIES COMPILE_OPTIONS "-include;isoft/define.h")
+
+target_link_libraries(platform_core PUBLIC capi_uds)
 
 # Communication layer (ara::com-style)
 add_subdirectory(com)

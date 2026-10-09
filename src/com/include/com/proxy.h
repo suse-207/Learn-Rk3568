@@ -83,7 +83,7 @@ namespace com
             ServiceProxy(
                 ServiceIdentifier const &serviceIdentifier,
                 InstanceIdentifier const &instanceIdentifier) noexcept
-                : serviceIdentifier_(serviceIdentifier), instanceIdentifier_(instanceIdentifier)
+                : serviceIdentifier_(serviceIdentifier), instanceIdentifier_(instanceIdentifier), instanceSpecifier_{"unknown"}
             {
             }
 

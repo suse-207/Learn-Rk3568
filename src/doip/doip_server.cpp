@@ -11,7 +11,9 @@
 #include <cstring>
 
 #include "common/log/log.h"
+#include "doip/doip_channel.h"
 #include "doip/doip_frame.h"
+#include "isoft/uds/message.h"
 
 namespace doip {
 namespace {
@@ -239,6 +241,7 @@ void DoipServer::handle_routing_activation(int fd, const std::uint8_t* payload, 
 
     routing_.activate(fd, tester_addr);
     conn.set_routing_active(tester_addr, activation_type);
+    channels_[fd] = std::make_shared<DoipChannel>(this, fd, tester_addr, "", 0U, "", 0U);
     conn.arm_general_inactivity(identity_.general_inactivity_timeout);
     send_routing_activation_response(
         fd, tester_addr, static_cast<std::uint8_t>(RoutingActivationCode::kSuccess));
@@ -273,6 +276,9 @@ void DoipServer::handle_diag_message(int fd, const std::uint8_t* payload, std::s
     if (it == connections_.end() || !it->second.routing_active()) {
         return;
     }
+    if (udsServer_ == nullptr) {
+        return;
+    }
 
     if (len < kDiagMessageMinimumLength) {
         send_generic_nack(fd,
@@ -288,7 +294,9 @@ void DoipServer::handle_diag_message(int fd, const std::uint8_t* payload, std::s
                        target_addr, source_addr);
         return;
     }
-    if (target_addr != identity_.logical_address) {
+
+    const bool physical = target_addr == identity_.logical_address;
+    if (!physical && !is_functional_address(target_addr)) {
         send_diag_nack(fd, static_cast<std::uint8_t>(DiagNackCode::kUnknownTargetAddress),
                        target_addr, source_addr);
         return;
@@ -299,26 +307,38 @@ void DoipServer::handle_diag_message(int fd, const std::uint8_t* payload, std::s
         return;
     }
 
-    uds_.Submit(fd, payload + 4, len - 4,
-                [this, fd, source_addr](std::vector<std::uint8_t> resp) {
-                    if (resp.empty() || loop_ == nullptr) {
-                        return;
-                    }
-                    loop_->post([this, fd, source_addr, resp = std::move(resp)]() mutable {
-                        if (connections_.find(fd) == connections_.end()) {
-                            return;
-                        }
-                        std::vector<std::uint8_t> out;
-                        out.reserve(4 + resp.size());
-                        out.push_back(static_cast<std::uint8_t>(identity_.logical_address >> 8));
-                        out.push_back(static_cast<std::uint8_t>(identity_.logical_address & 0xFF));
-                        out.push_back(static_cast<std::uint8_t>(source_addr >> 8));
-                        out.push_back(static_cast<std::uint8_t>(source_addr & 0xFF));
-                        out.insert(out.end(), resp.begin(), resp.end());
-                        send_frame(fd, static_cast<std::uint16_t>(PayloadType::kDiagMessage),
-                                   out.data(), out.size());
-                    });
-                });
+    auto channelIt = channels_.find(fd);
+    if (channelIt == channels_.end() || channelIt->second == nullptr) {
+        return;
+    }
+
+    auto request = std::make_shared<isoft::uds::server::Message>(source_addr, target_addr);
+    request->SetTaType(physical
+                           ? isoft::uds::server::TargetAddressType::kPhysical
+                           : isoft::uds::server::TargetAddressType::kFunctional);
+    request->GetBody().assign(payload + 4, payload + len);
+
+    auto indicated = udsServer_->Indicate(request, 0U, channelIt->second);
+    if (!indicated.HasValue()) {
+        LOG_INFO("fd=%d UDS Indicate refused", fd);
+    }
+    udsServer_->HandleMessage(request, 0U, channelIt->second);
+}
+
+bool DoipServer::SendDiagMessage(int fd,
+                                 std::uint16_t source_addr,
+                                 std::uint16_t target_addr,
+                                 const std::vector<std::uint8_t>& body) {
+    std::vector<std::uint8_t> payload;
+    payload.reserve(4U + body.size());
+    payload.push_back(static_cast<std::uint8_t>(source_addr >> 8));
+    payload.push_back(static_cast<std::uint8_t>(source_addr & 0xFFU));
+    payload.push_back(static_cast<std::uint8_t>(target_addr >> 8));
+    payload.push_back(static_cast<std::uint8_t>(target_addr & 0xFFU));
+    payload.insert(payload.end(), body.begin(), body.end());
+    send_frame(fd, static_cast<std::uint16_t>(PayloadType::kDiagMessage),
+               payload.data(), payload.size());
+    return true;
 }
 
 void DoipServer::send_diag_nack(int fd, std::uint8_t code, std::uint16_t source_addr,
@@ -499,7 +519,7 @@ void DoipServer::request_close(int fd) {
 
 void DoipServer::erase_client(int fd) {
     routing_.deactivate(fd);
-    uds_.erase(fd);
+    channels_.erase(fd);
     connections_.erase(fd);
 }
 

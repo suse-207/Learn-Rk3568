@@ -1,9 +1,11 @@
 #include "common/config/config.h"
 
+#include <cctype>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -13,15 +15,15 @@ bool extract_string(const std::string& json, const std::string& key, std::string
     if (pos == std::string::npos) {
         return false;
     }
-    pos = json.find(':', pos + needle.size());
+    pos = json.find(":", pos + needle.size());
     if (pos == std::string::npos) {
         return false;
     }
-    pos = json.find('"', pos + 1);
+    pos = json.find("\"", pos + 1);
     if (pos == std::string::npos) {
         return false;
     }
-    const std::size_t end = json.find('"', pos + 1);
+    const std::size_t end = json.find("\"", pos + 1);
     if (end == std::string::npos) {
         return false;
     }
@@ -35,7 +37,7 @@ bool extract_int(const std::string& json, const std::string& key, long& out) {
     if (pos == std::string::npos) {
         return false;
     }
-    pos = json.find(':', pos + needle.size());
+    pos = json.find(":", pos + needle.size());
     if (pos == std::string::npos) {
         return false;
     }
@@ -44,7 +46,42 @@ bool extract_int(const std::string& json, const std::string& key, long& out) {
     if (start == std::string::npos) {
         return false;
     }
-    out = std::strtol(tail.c_str() + start, nullptr, 10);
+    char* end = nullptr;
+    out = std::strtol(tail.c_str() + start, &end, 0);
+    return end != tail.c_str() + start;
+}
+
+bool extract_uint16_array(const std::string& json,
+                          const std::string& key,
+                          std::vector<std::uint16_t>& out) {
+    const std::string needle = "\"" + key + "\"";
+    std::size_t pos = json.find(needle);
+    if (pos == std::string::npos) {
+        return false;
+    }
+    pos = json.find("[", pos + needle.size());
+    const std::size_t end = json.find("]", pos);
+    if (pos == std::string::npos || end == std::string::npos) {
+        return false;
+    }
+
+    std::vector<std::uint16_t> result;
+    std::size_t cursor = pos + 1;
+    while (cursor < end) {
+        cursor = json.find_first_not_of(" \t\r\n,", cursor);
+        if (cursor == std::string::npos || cursor >= end) {
+            break;
+        }
+        char* parse_end = nullptr;
+        const long value = std::strtol(json.c_str() + cursor, &parse_end, 0);
+        if (parse_end == json.c_str() + cursor) {
+            return false;
+        }
+        result.push_back(static_cast<std::uint16_t>(value));
+        cursor = static_cast<std::size_t>(parse_end - json.c_str());
+    }
+
+    out = std::move(result);
     return true;
 }
 
@@ -65,10 +102,14 @@ bool load_config(const std::string& path, PlatformConfig& cfg) {
     long port = 0;
     long backlog = 0;
     long max_events = 0;
+    long logical_address = 0;
+    long max_open_sockets = 0;
+    long max_data_size = 0;
     long announcement_interval_ms = 0;
     long initial_inactivity_ms = 0;
     long general_inactivity_ms = 0;
     long alive_check_timeout_ms = 0;
+    std::vector<std::uint16_t> functional_addresses;
 
     if (extract_string(json, "listen_ip", ip)) {
         cfg.listen_ip = ip;
@@ -87,6 +128,18 @@ bool load_config(const std::string& path, PlatformConfig& cfg) {
     }
     if (extract_int(json, "max_events", max_events)) {
         cfg.max_events = static_cast<int>(max_events);
+    }
+    if (extract_int(json, "logical_address", logical_address)) {
+        cfg.logical_address = static_cast<std::uint16_t>(logical_address);
+    }
+    if (extract_int(json, "max_open_sockets", max_open_sockets)) {
+        cfg.max_open_sockets = static_cast<std::uint8_t>(max_open_sockets);
+    }
+    if (extract_int(json, "max_data_size", max_data_size)) {
+        cfg.max_data_size = static_cast<std::uint32_t>(max_data_size);
+    }
+    if (extract_uint16_array(json, "functional_addresses", functional_addresses)) {
+        cfg.functional_addresses = std::move(functional_addresses);
     }
     if (extract_int(json, "announcement_interval_ms", announcement_interval_ms)) {
         cfg.announcement_interval_ms = static_cast<int>(announcement_interval_ms);

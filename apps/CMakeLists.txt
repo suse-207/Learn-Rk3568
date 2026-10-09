@@ -1,12 +1,20 @@
-# Standalone demo applications (no CAPI dependencies)
+# Standalone demo applications
 
-# DoIP server demo
-add_executable(doip_server doip_server/main.cpp)
-target_link_libraries(doip_server PRIVATE platform_core)
+option(BUILD_LEGACY_DEMOS "Build legacy doip_server and capi_diag_server" OFF)
 
-# CAPI-derived DoIP/UDS server demo
-add_executable(capi_diag_server capi_diag_server/main.cpp)
-target_link_libraries(capi_diag_server PRIVATE capi_doip capi_uds)
+# Converged diagnostic server: self DoIP transport + CAPI UDS engine
+add_executable(diag_server diag_server/main.cpp)
+target_link_libraries(diag_server PRIVATE platform_core)
+
+if(BUILD_LEGACY_DEMOS)
+    # DoIP-only transport demo
+    add_executable(doip_server doip_server/main.cpp)
+    target_link_libraries(doip_server PRIVATE platform_core)
+
+    # CAPI-derived DoIP/UDS reference demo
+    add_executable(capi_diag_server capi_diag_server/main.cpp)
+    target_link_libraries(capi_diag_server PRIVATE capi_doip capi_uds)
+endif()
 
 # OTA demo
 add_executable(ota_demo ota_demo/main.cpp)

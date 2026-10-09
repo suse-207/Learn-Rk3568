@@ -1,5 +1,6 @@
 .vscode/
 build/
+build-full/
 build-port/
 build-someip/
 *.o
