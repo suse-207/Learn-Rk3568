@@ -4,7 +4,7 @@
 
 #include "com/runtime.h"
 #include "com/skeleton.h"
-#include "com/vsomeip/vsomeip_bind_runtime.h"
+#include "com/bind_runtime_factory.h"
 
 #include "ota/boot_controller.h"
 #include "ota/ota_manager.h"
@@ -32,12 +32,12 @@ int main() {
     // SOME-IP runtime + skeleton.
     auto* runtime = com::Runtime::Get();
     runtime->Init();
-    auto vsomeip = std::make_unique<com::vsomeip_binding::VsomeipBindRuntime>("ucm-service");
-    if (!vsomeip->Init()) {
-        std::cerr << "vsomeip init failed\n";
+    auto createdRuntime = com::CreateBindRuntime("vsomeip", "ucm-service");
+    if (!createdRuntime) {
+        std::cerr << "create vsomeip bind runtime failed\n";
         return 1;
     }
-    if (!runtime->RegisterBindRuntime(std::move(vsomeip))) {
+    if (!runtime->RegisterBindRuntime(std::move(createdRuntime))) {
         std::cerr << "register bind runtime failed\n";
         return 1;
     }

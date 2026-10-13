@@ -1,3 +1,5 @@
+> 任务收敛状态见：docs/TASK_CONVERGENCE.md
+
 ### P0：先冻结范围与目标板方案
 
 - [ ] **冻结首版范围**：DoIP/UDS 负责车辆发现、诊断连接和读取 F190；SOME/IP 负责服务发现、车辆状态查询及最小 OTA 控制；DDS、完整 UCM、UDS Download 暂不进入首版验收。

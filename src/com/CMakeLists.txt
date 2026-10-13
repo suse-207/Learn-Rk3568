@@ -18,6 +18,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Source files
 set(COM_SOURCES
     src/runtime.cpp
+    src/bind_runtime_factory.cpp
 )
 
 # Header files
@@ -25,6 +26,7 @@ set(COM_HEADERS
     include/com/types.h
     include/com/com_error_domain.h
     include/com/bind_runtime.h
+    include/com/bind_runtime_factory.h
     include/com/runtime.h
     include/com/proxy.h
     include/com/skeleton.h

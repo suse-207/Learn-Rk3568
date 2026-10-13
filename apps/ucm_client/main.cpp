@@ -8,7 +8,7 @@
 
 #include "com/proxy.h"
 #include "com/runtime.h"
-#include "com/vsomeip/vsomeip_bind_runtime.h"
+#include "com/bind_runtime_factory.h"
 
 #include "ota/http_downloader.h"
 #include "ota/package_manifest.h"
@@ -56,12 +56,12 @@ int main(int argc, char** argv) {
     // 3. Register vsomeip + find the UCM service.
     auto* runtime = com::Runtime::Get();
     runtime->Init();
-    auto vsomeip = std::make_unique<com::vsomeip_binding::VsomeipBindRuntime>("ucm-client");
-    if (!vsomeip->Init()) {
-        std::cerr << "vsomeip init failed\n";
+    auto createdRuntime = com::CreateBindRuntime("vsomeip", "ucm-client");
+    if (!createdRuntime) {
+        std::cerr << "create vsomeip bind runtime failed\n";
         return 1;
     }
-    if (!runtime->RegisterBindRuntime(std::move(vsomeip))) {
+    if (!runtime->RegisterBindRuntime(std::move(createdRuntime))) {
         std::cerr << "register bind runtime failed\n";
         return 1;
     }

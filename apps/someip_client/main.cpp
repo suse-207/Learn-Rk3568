@@ -5,7 +5,7 @@
 /// @brief      SOME/IP Client using decoupled communication layer
 
 #include "com/runtime.h"
-#include "com/vsomeip/vsomeip_bind_runtime.h"
+#include "com/bind_runtime_factory.h"
 #include "com/proxy.h"
 
 #include <atomic>
@@ -57,15 +57,14 @@ int main()
     }
 
     // Create and register vsomeip bind runtime
-    auto vsomeipRuntime = std::make_unique<com::vsomeip_binding::VsomeipBindRuntime>("someip-client");
-    auto vsomeipInitResult = vsomeipRuntime->Init();
-    if (!vsomeipInitResult)
+    auto createdRuntime = com::CreateBindRuntime("vsomeip", "someip-client");
+    if (!createdRuntime)
     {
-        std::cerr << "Failed to initialize vsomeip runtime\n";
+        std::cerr << "Failed to create vsomeip bind runtime\n";
         return 1;
     }
 
-    auto registerResult = runtime->RegisterBindRuntime(std::move(vsomeipRuntime));
+    auto registerResult = runtime->RegisterBindRuntime(std::move(createdRuntime));
     if (!registerResult)
     {
         std::cerr << "Failed to register vsomeip runtime\n";
