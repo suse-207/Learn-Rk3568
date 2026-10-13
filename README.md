@@ -1,6 +1,6 @@
 # rk3568-automotive-platform
 
-车载通信与 OTA 平台
+车载通信与 OTA demo （学习CAPI 开源库 https://github.com/AUTOSAR/capi)
 
 ## 架构概述
 
