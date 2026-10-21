@@ -19,7 +19,8 @@ public:
                SlotManager& slots,
                BootController& boot,
                VersionManager& versions,
-               std::string staging_dir);
+               std::string staging_dir,
+               bool auto_apply = false);
     ~OtaManager();
 
     OtaManager(const OtaManager&) = delete;
@@ -45,6 +46,7 @@ private:
     BootController& boot_;
     VersionManager& versions_;
     std::string staging_dir_;
+    bool auto_apply_{false};
 
     mutable std::mutex progress_mutex_;
     Progress progress_;

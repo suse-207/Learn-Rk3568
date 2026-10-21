@@ -39,3 +39,10 @@ target_link_libraries(someip_server PRIVATE platform_core com)
 # SOME/IP client demo (using vsomeip binding)
 add_executable(someip_client someip_client/main.cpp)
 target_link_libraries(someip_client PRIVATE platform_core com)
+
+# VehicleStatus SOME/IP skeleton demo
+add_executable(vehicle_status_service vehicle_status_service/main.cpp)
+target_link_libraries(vehicle_status_service PRIVATE vehicle_status com)
+
+add_executable(vehicle_status_client vehicle_status_client/main.cpp)
+target_link_libraries(vehicle_status_client PRIVATE vehicle_status com)

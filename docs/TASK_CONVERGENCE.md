@@ -5,6 +5,8 @@
 
 ## 1. 首版冻结范围
 
+> 已冻结契约：docs/VehicleStatus_Contract.md
+
 首版只做：
 
 ```text
@@ -40,8 +42,8 @@ UDS 0x34/0x36/0x37 作为首版验收主链路
 | UDS 0x22 F190 | 本机验证 | DoIP 测试：读取 17 字节 VIN |
 | Functional addressing 0x7DF | 本机验证 | 自研 DoIP 路由测试通过 |
 | SOME/IP 服务发现 | 代码存在，本机验证 | `apps/someip_server`、`apps/someip_client` |
-| 车辆状态查询 | 未收敛 | 当前只有版本服务，没有统一 VehicleStatus 契约 |
-| 最小 OTA 控制接口 | 部分存在 | `src/ota/ucm_service.h` 有 17 个 UCM 方法，但未冻结首版方法集 |
+| 车辆状态查询 | 契约已冻结，代码骨架已建 | `docs/VehicleStatus_Contract.md`、`src/vehicle_status`、`apps/vehicle_status_*` |
+| 最小 OTA 控制接口 | 已接 OtaManager | VehicleStatus StartUpdate 已调用真实 OtaManager，slot/boot 仍为 Mock |
 | OTA Core | Mock 验证 | `src/ota/ota_manager.*`、`apps/ota_demo` |
 | 真实镜像写入 inactive slot | 未验证 | 当前是 MockSlotManager |
 | 真实启动切换 | 未验证 | 当前是 MockBootController |

@@ -108,3 +108,13 @@ add_library(ucm STATIC
 )
 target_include_directories(ucm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(ucm PUBLIC platform_core com)
+
+# VehicleStatus SOME/IP contract skeleton
+add_library(vehicle_status STATIC
+    vehicle_status/vehicle_status_protocol.cpp
+    vehicle_status/vehicle_status_service_skeleton.cpp
+    vehicle_status/vehicle_status_proxy.cpp
+    vehicle_status/ota_vehicle_status_service.cpp
+)
+target_include_directories(vehicle_status PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(vehicle_status PUBLIC com platform_core)

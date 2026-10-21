@@ -12,12 +12,14 @@ OtaManager::OtaManager(VerifyStrategy& verify,
                        SlotManager& slots,
                        BootController& boot,
                        VersionManager& versions,
-                       std::string staging_dir)
+                       std::string staging_dir,
+                       bool auto_apply)
     : verify_(verify),
       slots_(slots),
       boot_(boot),
       versions_(versions),
-      staging_dir_(std::move(staging_dir)) {
+      staging_dir_(std::move(staging_dir)),
+      auto_apply_(auto_apply) {
     ::mkdir(staging_dir_.c_str(), 0755);
 }
 
@@ -158,6 +160,10 @@ void OtaManager::run_update(std::string image_path, std::string expected_digest,
 
     versions_.set_target(target_version);
     set_progress(State::ReadyToSwitch, 90, "ready to switch");
+
+    if (auto_apply_) {
+        switch_and_reboot();
+    }
 }
 
 void OtaManager::set_progress(State state, int percent, std::string detail) {
