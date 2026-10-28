@@ -20,6 +20,14 @@ OtaManager::OtaManager(VerifyStrategy& verify,
       versions_(versions),
       staging_dir_(std::move(staging_dir)),
       auto_apply_(auto_apply) {
+    // The staging directory lives below a per-application base directory that
+    // does not exist on a fresh boot (e.g. "/tmp/rk3568-vehicle-status-ota/
+    // staging"), so the parent has to be created before the leaf, otherwise
+    // every update fails with "copy file failed" at the first copy.
+    const std::string::size_type slash = staging_dir_.find_last_of('/');
+    if (slash != std::string::npos && slash > 0) {
+        ::mkdir(staging_dir_.substr(0, slash).c_str(), 0755);
+    }
     ::mkdir(staging_dir_.c_str(), 0755);
 }
 
