@@ -37,9 +37,9 @@ public:
 
     Errc Rollback() override;
 
-private:
     static OtaState MapState(ota::State state);
 
+private:
     ota::OtaManager& manager_;
     ota::SlotManager& slots_;
     ota::VersionManager& versions_;

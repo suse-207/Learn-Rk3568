@@ -263,7 +263,9 @@ namespace com
             vsomeipApp_->subscribe(
                 static_cast<vsomeip_v3::service_t>(serviceId_),
                 static_cast<vsomeip_v3::instance_t>(instanceId_),
-                static_cast<vsomeip_v3::eventgroup_t>(eventGroupId));
+                static_cast<vsomeip_v3::eventgroup_t>(eventGroupId),
+                static_cast<vsomeip_v3::major_version_t>(0),
+                static_cast<vsomeip_v3::event_t>(eventId));
         }
 
         void VsomeipBindHandle::UnsubscribeEvent(

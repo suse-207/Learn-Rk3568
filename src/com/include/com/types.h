@@ -48,6 +48,13 @@ namespace com
     /// @brief Field identifier type
     using FieldIdentifier = uint16_t;
 
+    /// @brief Event type: plain event or field (getter/setter/notifier)
+    enum class EventType : uint8_t
+    {
+        kEvent = 0x00,
+        kField = 0x02,
+    };
+
     /// @brief Instance identifier container type
     using InstanceIdentifierContainer = std::vector<InstanceIdentifier>;
 

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -35,6 +36,12 @@ public:
 
     Progress progress() const;
 
+    /// @brief Register a callback invoked whenever the OTA progress changes
+    /// @param[in] cb Callback receiving a copy of the current Progress
+    /// @note Called from the OTA worker thread; must be thread-safe.
+    using ProgressCallback = std::function<void(const Progress&)>;
+    void SetProgressCallback(ProgressCallback cb);
+
 private:
     void run_update(std::string image_path, std::string expected_digest, std::string target_version);
     void set_progress(State state, int percent, std::string detail);
@@ -51,6 +58,7 @@ private:
     mutable std::mutex progress_mutex_;
     Progress progress_;
     std::thread worker_;
+    ProgressCallback progress_cb_;
 };
 
 }  // namespace ota

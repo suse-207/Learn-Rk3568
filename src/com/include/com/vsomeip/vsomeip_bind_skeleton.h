@@ -12,6 +12,7 @@
 #include <vsomeip/runtime.hpp>
 #include <memory>
 #include <functional>
+#include <set>
 
 namespace com
 {
@@ -51,10 +52,23 @@ namespace com
                 MethodIdentifier methodId,
                 std::function<void(std::vector<uint8_t> const &, std::vector<uint8_t> &)> handler) noexcept override;
 
+            /// @brief Offer an event/field and register it into its event groups
+            /// @param[in] eventId Event/field identifier
+            /// @param[in] eventGroupIds Event groups the event belongs to
+            /// @param[in] type Plain event or field
+            Result<void> OfferEvent(
+                EventIdentifier eventId,
+                std::set<EventGroupIdentifier> const &eventGroupIds,
+                EventType type = EventType::kEvent) noexcept override;
+
+            /// @brief Stop offering an event/field
+            /// @param[in] eventId Event/field identifier
+            Result<void> StopOfferEvent(EventIdentifier eventId) noexcept override;
+
             /// @brief Send event notification
             /// @param[in] eventId Event identifier
             /// @param[in] eventData Event data
-            void SendEvent(EventIdentifier eventId, std::vector<uint8_t> const &eventData) noexcept;
+            void SendEvent(EventIdentifier eventId, std::vector<uint8_t> const &eventData) noexcept override;
 
             /// @brief Get service identifier
             ServiceIdentifier GetServiceId() const noexcept { return serviceId_; }
@@ -68,6 +82,7 @@ namespace com
             ServiceIdentifier serviceId_;
             InstanceIdentifier instanceId_;
             bool offered_{false};
+            std::set<EventIdentifier> offeredEvents_;
         };
 
     } // namespace vsomeip_binding

@@ -152,6 +152,53 @@ namespace com
                 });
         }
 
+        Result<void> VsomeipBindSkeleton::OfferEvent(
+            EventIdentifier eventId,
+            std::set<EventGroupIdentifier> const &eventGroupIds,
+            EventType type) noexcept
+        {
+            if (!vsomeipApp_)
+            {
+                return Result<void>::FromError(ComErrc::kInvalidHandle);
+            }
+
+            std::set<vsomeip_v3::eventgroup_t> groups;
+            for (auto groupId : eventGroupIds)
+            {
+                groups.insert(static_cast<vsomeip_v3::eventgroup_t>(groupId));
+            }
+
+            vsomeip_v3::event_type_e eventType = (type == EventType::kField)
+                ? vsomeip_v3::event_type_e::ET_FIELD
+                : vsomeip_v3::event_type_e::ET_EVENT;
+
+            vsomeipApp_->offer_event(
+                static_cast<vsomeip_v3::service_t>(serviceId_),
+                static_cast<vsomeip_v3::instance_t>(instanceId_),
+                static_cast<vsomeip_v3::event_t>(eventId),
+                groups,
+                eventType);
+
+            offeredEvents_.insert(eventId);
+            return Result<void>::FromValue();
+        }
+
+        Result<void> VsomeipBindSkeleton::StopOfferEvent(EventIdentifier eventId) noexcept
+        {
+            if (!vsomeipApp_)
+            {
+                return Result<void>::FromValue();
+            }
+
+            vsomeipApp_->stop_offer_event(
+                static_cast<vsomeip_v3::service_t>(serviceId_),
+                static_cast<vsomeip_v3::instance_t>(instanceId_),
+                static_cast<vsomeip_v3::event_t>(eventId));
+
+            offeredEvents_.erase(eventId);
+            return Result<void>::FromValue();
+        }
+
         void VsomeipBindSkeleton::SendEvent(EventIdentifier eventId, std::vector<uint8_t> const &eventData) noexcept
         {
             if (!vsomeipApp_ || !offered_)
@@ -159,26 +206,20 @@ namespace com
                 return;
             }
 
-            // Create notification message
-            auto notification = vsomeip_v3::runtime::get()->create_notification();
-            if (!notification)
+            // Fire the event through vsomeip's notify API. Using send() with a
+            // hand-built notification message does not go through the
+            // subscription/eventgroup distribution path.
+            auto payload = vsomeip_v3::runtime::get()->create_payload(eventData);
+            if (!payload)
             {
                 return;
             }
 
-            notification->set_service(static_cast<vsomeip_v3::service_t>(serviceId_));
-            notification->set_instance(static_cast<vsomeip_v3::instance_t>(instanceId_));
-            notification->set_method(static_cast<vsomeip_v3::event_t>(eventId));
-
-            // Set payload
-            auto payload = vsomeip_v3::runtime::get()->create_payload(eventData);
-            if (payload)
-            {
-                notification->set_payload(payload);
-            }
-
-            // Send notification
-            vsomeipApp_->send(notification);
+            vsomeipApp_->notify(
+                static_cast<vsomeip_v3::service_t>(serviceId_),
+                static_cast<vsomeip_v3::instance_t>(instanceId_),
+                static_cast<vsomeip_v3::event_t>(eventId),
+                payload);
         }
 
     } // namespace vsomeip_binding

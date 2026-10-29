@@ -1,0 +1,21 @@
+{
+    "unicast": "192.168.137.2",
+    "netmask": "255.255.255.0",
+    "logging": {
+        "level": "info",
+        "console": "true",
+        "file": { "enable": "false", "path": "/tmp/vs_client.log" },
+        "dlt": "false"
+    },
+    "applications": [
+        { "name": "vehicle-status-client", "id": "0x1351" }
+    ],
+    "routing": "vehicle-status-service",
+    "service-discovery": {
+        "enable": "true",
+        "multicast": "224.244.224.245",
+        "port": "30490",
+        "protocol": "udp",
+        "ttl": "60"
+    }
+}

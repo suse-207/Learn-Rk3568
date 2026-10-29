@@ -63,14 +63,14 @@ namespace com
             void SubscribeEvent(
                 EventIdentifier eventId,
                 EventGroupIdentifier eventGroupId,
-                std::function<void(std::vector<uint8_t> const &)> handler) noexcept;
+                std::function<void(std::vector<uint8_t> const &)> handler) noexcept override;
 
             /// @brief Unsubscribe from an event
             /// @param[in] eventId Event identifier
             /// @param[in] eventGroupId Event group identifier the event belongs to
             void UnsubscribeEvent(
                 EventIdentifier eventId,
-                EventGroupIdentifier eventGroupId) noexcept;
+                EventGroupIdentifier eventGroupId) noexcept override;
 
             /// @brief Get service identifier
             ServiceIdentifier GetServiceId() const noexcept { return serviceId_; }

@@ -50,6 +50,22 @@ namespace com
             virtual Future<std::vector<uint8_t>> SendRequestAsync(
                 MethodIdentifier methodId,
                 std::vector<uint8_t> const &requestData) noexcept = 0;
+
+            /// @brief Subscribe to an event group and register a notification handler
+            /// @param[in] eventId Event identifier
+            /// @param[in] eventGroupId Event group the event belongs to
+            /// @param[in] handler Called with the serialized event payload
+            virtual void SubscribeEvent(
+                EventIdentifier eventId,
+                EventGroupIdentifier eventGroupId,
+                std::function<void(std::vector<uint8_t> const &)> handler) noexcept = 0;
+
+            /// @brief Unsubscribe from an event group
+            /// @param[in] eventId Event identifier
+            /// @param[in] eventGroupId Event group the event belongs to
+            virtual void UnsubscribeEvent(
+                EventIdentifier eventId,
+                EventGroupIdentifier eventGroupId) noexcept = 0;
         };
 
         /// @brief Binding layer proxy abstract interface

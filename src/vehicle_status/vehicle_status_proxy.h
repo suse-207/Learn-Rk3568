@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string>
 
 #include "vehicle_status/vehicle_status_protocol.h"
@@ -32,6 +33,9 @@ public:
                      std::string& detail);
 
     Errc Rollback();
+
+    void SubscribeOtaStateChanged(
+        std::function<void(OtaState, std::uint32_t, const std::string&)> handler);
 
 private:
     com::proxy::BindHandle& handle_;

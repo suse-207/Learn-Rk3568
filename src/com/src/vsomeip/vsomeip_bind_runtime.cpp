@@ -181,6 +181,15 @@ namespace com
             FindServiceHandle const &findHandle,
             FindServiceHandler<std::shared_ptr<proxy::BindHandle>> const &findHandler) noexcept
         {
+            // Request the service first; vsomeip only notifies availability
+            // handlers for services the client has requested.
+            if (impl_->vsomeipApp_)
+            {
+                impl_->vsomeipApp_->request_service(
+                    static_cast<vsomeip_v3::service_t>(findHandle.serviceIdentifier),
+                    static_cast<vsomeip_v3::instance_t>(findHandle.instanceIdentifier));
+            }
+
             // Register availability handler with vsomeip
             if (impl_->vsomeipApp_)
             {

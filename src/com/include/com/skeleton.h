@@ -53,6 +53,26 @@ namespace com
                 MethodIdentifier methodId,
                 std::function<void(std::vector<uint8_t> const &, std::vector<uint8_t> &)> handler) noexcept = 0;
 
+            /// @brief Offer an event/field and register it into its event groups
+            /// @param[in] eventId Event/field identifier
+            /// @param[in] eventGroupIds Event groups the event belongs to
+            /// @param[in] type Plain event or field
+            virtual Result<void> OfferEvent(
+                EventIdentifier eventId,
+                std::set<EventGroupIdentifier> const &eventGroupIds,
+                EventType type = EventType::kEvent) noexcept = 0;
+
+            /// @brief Stop offering an event/field
+            /// @param[in] eventId Event/field identifier
+            virtual Result<void> StopOfferEvent(EventIdentifier eventId) noexcept = 0;
+
+            /// @brief Send a notification for an event/field
+            /// @param[in] eventId Event/field identifier
+            /// @param[in] eventData Serialized event payload
+            virtual void SendEvent(
+                EventIdentifier eventId,
+                std::vector<uint8_t> const &eventData) noexcept = 0;
+
             /// @brief Get the binding runtime name
             virtual char const *GetBindRuntimeName() const noexcept = 0;
         };

@@ -119,4 +119,19 @@ Errc VehicleStatusProxy::Rollback() {
     return static_cast<Errc>(errc);
 }
 
+void VehicleStatusProxy::SubscribeOtaStateChanged(
+    std::function<void(OtaState, std::uint32_t, const std::string&)> handler) {
+    handle_.SubscribeEvent(
+        kEventOtaStateChanged, kEventGroupId,
+        [handler](const std::vector<std::uint8_t>& data) {
+            std::size_t pos = 0;
+            OtaState state = OtaState::kIdle;
+            std::uint32_t percent = 0;
+            std::string detail;
+            if (ReadOtaState(data, pos, state, percent, detail)) {
+                handler(state, percent, detail);
+            }
+        });
+}
+
 }  // namespace vehicle_status

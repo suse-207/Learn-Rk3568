@@ -25,6 +25,13 @@ void AppendString(std::vector<std::uint8_t>& out, const std::string& s) {
     out.insert(out.end(), s.begin(), s.end());
 }
 
+void AppendOtaState(std::vector<std::uint8_t>& out, OtaState state,
+                    std::uint32_t percent, const std::string& detail) {
+    out.push_back(static_cast<std::uint8_t>(state));
+    AppendU32(out, percent);
+    AppendString(out, detail);
+}
+
 bool ReadU16(const std::vector<std::uint8_t>& in, std::size_t& pos, std::uint16_t& v) {
     if (pos + 2 > in.size()) {
         return false;
@@ -66,6 +73,16 @@ bool ReadString(const std::vector<std::uint8_t>& in, std::size_t& pos, std::stri
     s.assign(in.begin() + pos, in.begin() + pos + len);
     pos += len;
     return true;
+}
+
+bool ReadOtaState(const std::vector<std::uint8_t>& in, std::size_t& pos,
+                  OtaState& state, std::uint32_t& percent, std::string& detail) {
+    if (pos + 1 > in.size()) {
+        return false;
+    }
+    state = static_cast<OtaState>(in[pos]);
+    pos += 1;
+    return ReadU32(in, pos, percent) && ReadString(in, pos, detail);
 }
 
 }  // namespace vehicle_status

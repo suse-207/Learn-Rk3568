@@ -14,6 +14,9 @@ constexpr std::uint16_t kMethodStartUpdate = 0x0002;
 constexpr std::uint16_t kMethodGetProgress = 0x0003;
 constexpr std::uint16_t kMethodRollback = 0x0004;
 
+constexpr std::uint16_t kEventGroupId = 0x0001;
+constexpr std::uint16_t kEventOtaStateChanged = 0x8001;
+
 enum class Errc : std::uint32_t {
     kSuccess = 0x00,
     kInvalidArgument = 0x01,
@@ -42,10 +45,14 @@ void AppendU16(std::vector<std::uint8_t>& out, std::uint16_t v);
 void AppendU32(std::vector<std::uint8_t>& out, std::uint32_t v);
 void AppendU64(std::vector<std::uint8_t>& out, std::uint64_t v);
 void AppendString(std::vector<std::uint8_t>& out, const std::string& s);
+void AppendOtaState(std::vector<std::uint8_t>& out, OtaState state,
+                    std::uint32_t percent, const std::string& detail);
 
 bool ReadU16(const std::vector<std::uint8_t>& in, std::size_t& pos, std::uint16_t& v);
 bool ReadU32(const std::vector<std::uint8_t>& in, std::size_t& pos, std::uint32_t& v);
 bool ReadU64(const std::vector<std::uint8_t>& in, std::size_t& pos, std::uint64_t& v);
 bool ReadString(const std::vector<std::uint8_t>& in, std::size_t& pos, std::string& s);
+bool ReadOtaState(const std::vector<std::uint8_t>& in, std::size_t& pos,
+                  OtaState& state, std::uint32_t& percent, std::string& detail);
 
 }  // namespace vehicle_status

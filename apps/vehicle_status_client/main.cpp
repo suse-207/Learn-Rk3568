@@ -101,6 +101,23 @@ int main(int argc, char** argv) {
                               << " slot=" << current_slot
                               << " state=" << static_cast<int>(state) << "\n";
 
+                    std::atomic<int> notifications{0};
+                    proxy.SubscribeOtaStateChanged(
+                        [&notifications](vehicle_status::OtaState s,
+                                         std::uint32_t p,
+                                         const std::string& d) {
+                            std::cout << "[client] <- NOTIFY OtaStateChanged"
+                                      << " state=" << static_cast<int>(s)
+                                      << " percent=" << p
+                                      << " detail=" << d << "\n";
+                            notifications.fetch_add(1);
+                        });
+                    std::cout << "[client] subscribed to eventgroup 0x"
+                              << std::hex << vehicle_status::kEventGroupId
+                              << std::dec << ", waiting for ACK ...\n";
+                    std::this_thread::sleep_for(
+                        std::chrono::milliseconds(1000));
+
                     std::string update_id;
                     errc = proxy.StartUpdate(
                         version, package_size, sha256, update_id);
@@ -117,6 +134,13 @@ int main(int argc, char** argv) {
                               << " state=" << static_cast<int>(state)
                               << " percent=" << percent
                               << " detail=" << detail << "\n";
+
+                    std::cout << "[client] waiting for notifications ...\n";
+                    std::this_thread::sleep_for(
+                        std::chrono::milliseconds(3000));
+                    std::cout << "[client] received "
+                              << notifications.load()
+                              << " notifications\n";
 
                     errc = proxy.Rollback();
                     std::cout << "Rollback errc="

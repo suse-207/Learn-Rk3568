@@ -174,6 +174,10 @@ void OtaManager::run_update(std::string image_path, std::string expected_digest,
     }
 }
 
+void OtaManager::SetProgressCallback(ProgressCallback cb) {
+    progress_cb_ = std::move(cb);
+}
+
 void OtaManager::set_progress(State state, int percent, std::string detail) {
     std::lock_guard<std::mutex> lock(progress_mutex_);
     set_progress_locked(state, percent, std::move(detail));
@@ -185,6 +189,9 @@ void OtaManager::set_progress_locked(State state, int percent, std::string detai
     progress_.detail = std::move(detail);
     LOG_INFO("OTA state=%s percent=%d detail=%s",
              state_to_string(state), percent, progress_.detail.c_str());
+    if (progress_cb_) {
+        progress_cb_(progress_);
+    }
 }
 
 bool OtaManager::copy_file(const std::string& from, const std::string& to, std::string& error) const {

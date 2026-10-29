@@ -79,8 +79,17 @@ int main(int argc, char** argv) {
 
     for (auto& bs : bindSkeletons) {
         skeleton.Register(*bs);
+        skeleton.RegisterEvent(*bs);
         bs->Offer();
     }
+
+    manager.SetProgressCallback(
+        [&skeleton](const ota::Progress& progress) {
+            skeleton.NotifyState(
+                vehicle_status::OtaVehicleStatusService::MapState(progress.state),
+                static_cast<std::uint32_t>(progress.percent),
+                progress.detail);
+        });
 
     std::cout << "VehicleStatus service offered, backend="
               << (linuxab ? "linuxab" : "mock")
