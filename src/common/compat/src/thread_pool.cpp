@@ -39,9 +39,14 @@ void ThreadPool::Start() noexcept
 
 void ThreadPool::Stop() noexcept
 {
-    running_ = false;
+    // 先在持锁状态下置位，再唤醒；join 必须在释放 lock_ 之后进行。
+    // 否则主线程持锁 join、被唤起的 worker 又在 cond_.wait_for 内抢同一把
+    // 锁才能返回，双方互等，进程卡死在 Stop()（Ctrl-C 无法退出）。
+    {
+        std::lock_guard< std::mutex > lock{lock_};
+        running_ = false;
+    }
     cond_.notify_all();
-    std::lock_guard< std::mutex > lock{lock_};
     for (auto& worker : workers_) {
         if (worker.joinable()) {
             worker.join();

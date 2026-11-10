@@ -7,7 +7,7 @@
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                      Demo Applications                      │
-│  doip_server │ someip_server │ someip_client │ ota_demo    │
+│  diag_server │ someip_server │ someip_client │ ota_demo    │
 └─────────────────────────────────────────────────────────────┘
                               │
                     ┌─────────┴─────────┐
@@ -77,7 +77,7 @@ cmake --build build -j
 
 ```bash
 # DoIP / UDS 服务
-./build/apps/doip_server config/platform.json
+./build/apps/diag_server config/platform.json
 
 # SOME/IP 服务端 / 客户端（需要 vsomeip 配置）
 VSOMEIP_CONFIGURATION=config/vsomeip.json ./build/apps/someip_server 1.0.0
@@ -104,7 +104,7 @@ auto runtime = com::vsomeip::create_runtime("my_service");
 
 ### 自研 DoIP/UDS 异步 dispatch
 
-自研 `doip_server` 的网络线程只负责 epoll 收包、DoIP 帧重组和回包；
+自研 DoIP 传输层（`src/doip/doip_server.cpp`）的网络线程只负责 epoll 收包、DoIP 帧重组和回包；
 UDS 请求通过 `UdsDispatcher::Submit` 投递到 worker 线程处理，处理结果再经
 `EpollLoop::post` 回到网络线程发送。这样长耗时的诊断服务不会阻塞 epoll loop。
 
