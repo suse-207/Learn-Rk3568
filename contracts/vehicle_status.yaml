@@ -8,6 +8,8 @@ service_id: 0x6100
 instance_id: 0x0001
 version: {major: 1, minor: 0}
 
+logging: true   # 生成 skeleton 时输出 [someip] 请求/响应/事件日志 + payload 十六进制
+
 encoding:
   endianness: big
   string_length: u32

@@ -77,6 +77,7 @@ class Contract(object):
         self.major = version.get("major", 1)
         self.minor = version.get("minor", 0)
         self.encoding = doc["encoding"]
+        self.logging = bool(doc.get("logging", False))
         self.enums = {}
         for name, spec in (doc.get("enums") or {}).items():
             self.enums[name] = {"type": spec["type"], "values": spec["values"]}
@@ -597,15 +598,39 @@ def emit_skeleton_h(contract):
     return "\n".join(L)
 
 
+def log_expr(field, contract):
+    if field.type in contract.enums:
+        return "static_cast<%s>(%s)" % (BASE_CPP[contract.wire_of(field.type)], field.name)
+    return field.name
+
+
 def emit_skeleton_cpp(contract):
     pkg = contract.package
-    L = [banner(contract), '#include "%s/%s_service_skeleton.h"' % (pkg, pkg), "",
-         "#include <set>", "", '#include "com/skeleton.h"', "",
-         "namespace %s {" % pkg, "",
+    includes = ["#include <set>"]
+    if contract.logging:
+        includes.insert(0, "#include <iostream>")
+    L = [banner(contract), '#include "%s/%s_service_skeleton.h"' % (pkg, pkg), ""]
+    L.extend(includes)
+    L.extend(["", '#include "com/skeleton.h"', "", "namespace %s {" % pkg, ""])
+    if contract.logging:
+        L.extend([
+            "namespace {", "",
+            "// payload 小写十六进制输出：板端排查时唯一能看到线格式的地方。",
+            "void DumpBytes(const char* tag, const std::vector<std::uint8_t>& data) {",
+            '    static const char kHex[] = "0123456789abcdef";',
+            '    std::cout << tag << " len=" << data.size() << "B |";',
+            "    for (std::size_t i = 0; i < data.size(); ++i) {",
+            "        const std::uint8_t byte = data[i];",
+            "        std::cout << ' ' << kHex[byte >> 4] << kHex[byte & 0x0Fu];",
+            "    }",
+            "    std::cout << std::endl;",
+            "}", "",
+            "}  // namespace", ""])
+    L.extend([
          "%sServiceSkeleton::%sServiceSkeleton(%sService& service)" % (
              contract.service, contract.service, contract.service),
          "    : service_(service) {}", "",
-         "void %sServiceSkeleton::Register(com::skeleton::BindSkeleton& bind) {" % contract.service]
+         "void %sServiceSkeleton::Register(com::skeleton::BindSkeleton& bind) {" % contract.service])
     if contract.events:
         L.append("    binds_.push_back(&bind);")
         L.append("")
@@ -614,6 +639,10 @@ def emit_skeleton_cpp(contract):
                   "        kMethod%s," % m.name,
                   "        [this](const std::vector<std::uint8_t>& request,",
                   "               std::vector<std::uint8_t>& response) {"])
+        if contract.logging:
+            L.append('            std::cout << "[someip] <- REQUEST %s(0x%04X)" << std::endl;'
+                     % (m.name, _as_int(m.id, "id")))
+            L.append('            DumpBytes("[someip]    req", request);')
         for f in m.request:
             L.append("            %s %s{};" % (contract.cpp(f.type), f.name))
         for f in m.response:
@@ -622,6 +651,9 @@ def emit_skeleton_cpp(contract):
         if m.request:
             L.append("            if (!Decode%sRequest(request, pos%s)) {" % (
                 m.name, (", " + ", ".join(f.name for f in m.request)) if m.request else ""))
+            if contract.logging:
+                L.append('                std::cout << "[someip] %s: bad payload" << std::endl;'
+                         % m.name)
             L.append("                Encode%sResponse(response, Errc::kInvalidArgument%s);" % (
                 m.name, (", " + ", ".join(f.name for f in m.response)) if m.response else ""))
             L.extend(["                return;", "            }"])
@@ -631,6 +663,13 @@ def emit_skeleton_cpp(contract):
         L.append("            const Errc errc = service_.%s(%s);" % (m.name, ", ".join(call_args)))
         L.append("            Encode%sResponse(response, errc%s);" % (
             m.name, (", " + ", ".join(f.name for f in m.response)) if m.response else ""))
+        if contract.logging:
+            L.append('            std::cout << "[someip] -> RESPONSE %s errc="' % m.name)
+            extra = "".join(' << " %s=" << %s' % (f.name, log_expr(f, contract))
+                            for f in m.response)
+            L.append("                      << static_cast<std::uint32_t>(errc)%s" % extra)
+            L.append("                      << std::endl;")
+            L.append('            DumpBytes("[someip]    rsp", response);')
         L.extend(["        });", ""])
     L.extend(["}", ""])
 
@@ -639,6 +678,10 @@ def emit_skeleton_cpp(contract):
         L.append("    std::set<com::EventGroupIdentifier> groups{kEventGroupId};")
         for e in contract.events:
             L.append("    bind.OfferEvent(kEvent%s, groups, com::EventType::kEvent);" % e.name)
+            if contract.logging:
+                L.append('    std::cout << "[someip] event 0x" << std::hex << kEvent%s' % e.name)
+                L.append('              << " group 0x" << kEventGroup%s << std::dec << std::endl;'
+                         % e.name)
         L.extend(["}", ""])
         for e in contract.events:
             L.append("void %sServiceSkeleton::%s(%s) {" % (
@@ -646,6 +689,11 @@ def emit_skeleton_cpp(contract):
             L.append("    std::vector<std::uint8_t> data;")
             L.append("    Encode%sEvent(data%s);" % (
                 e.name, (", " + ", ".join(f.name for f in e.payload)) if e.payload else ""))
+            if contract.logging:
+                parts = "".join(' << " %s=" << %s' % (f.name, log_expr(f, contract))
+                                for f in e.payload)
+                L.append('    std::cout << "[someip] -> NOTIFY %s"' % e.name + parts +
+                         " << std::endl;")
             L.append("    for (auto* bind : binds_) {")
             L.append("        bind->SendEvent(kEvent%s, data);" % e.name)
             L.extend(["    }", "}", ""])
