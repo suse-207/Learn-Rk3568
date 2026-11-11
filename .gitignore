@@ -13,3 +13,4 @@ deploy-aarch64/
 deploy-aarch64.tar.gz
 
 build-aarch64-debug/
+tests/idlc/.gen/

@@ -1,0 +1,83 @@
+# VehicleStatus SOME/IP 契约（机器可读真源）
+# 变更后重新生成：python3 tools/idlc.py contracts/vehicle_status.yaml generated
+# 线格式约定与 docs/VehicleStatus_Contract.md 一致，改这里之前先改文档。
+
+package: vehicle_status
+service: VehicleStatus
+service_id: 0x6100
+instance_id: 0x0001
+version: {major: 1, minor: 0}
+
+encoding:
+  endianness: big
+  string_length: u32
+  error_first: {name: Errc, type: u32}
+  payload_on_success_only: true
+
+enums:
+  Errc:
+    type: u32
+    values:
+      kSuccess: 0x00
+      kInvalidArgument: 0x01
+      kNotFound: 0x02
+      kBusy: 0x03
+      kInternalError: 0x04
+      kNotReady: 0x05
+      kVerifyFailed: 0x06
+      kInstallFailed: 0x07
+      kRollbackFailed: 0x08
+  OtaState:
+    type: u8
+    values:
+      kIdle: 0x00
+      kDownloading: 0x01
+      kVerifying: 0x02
+      kInstalling: 0x03
+      kReadyToSwitch: 0x04
+      kRebooting: 0x05
+      kSuccess: 0x06
+      kFailed: 0x07
+      kRollback: 0x08
+
+methods:
+  - name: GetStatus
+    id: 0x0001
+    request: []
+    response:
+      - {name: version, type: string}
+      - {name: current_slot, type: string}
+      - {name: ota_state, type: OtaState}
+
+  - name: StartUpdate
+    id: 0x0002
+    request:
+      - {name: version, type: string}
+      - {name: package_size, type: u64}
+      - {name: sha256, type: string}
+    response:
+      - {name: update_id, type: string}
+
+  - name: GetProgress
+    id: 0x0003
+    request:
+      - {name: update_id, type: string}
+    response:
+      - {name: ota_state, type: OtaState}
+      - {name: percent, type: u32}
+      - {name: detail, type: string}
+
+  - name: Rollback
+    id: 0x0004
+    request: []
+    response: []
+
+events:
+  - name: OtaStateChanged
+    id: 0x8001
+    event_group: 0x0001
+    notify_name: NotifyState   # 保持与现有 apps/vehicle_status_service 的调用名一致
+    payload:
+      - {name: ota_state, type: OtaState}
+      - {name: percent, type: u32}
+      - {name: detail, type: string}
