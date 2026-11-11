@@ -1,7 +1,11 @@
+#include <atomic>
+#include <chrono>
+#include <csignal>
 #include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "com/bind_runtime_factory.h"
@@ -19,6 +23,16 @@
 #include "vehicle_status/ota_vehicle_status_service.h"
 #include "vehicle_status/vehicle_status_protocol.h"
 #include "vehicle_status/vehicle_status_service_skeleton.h"
+
+namespace {
+
+std::atomic<bool> g_running{true};
+
+void OnSignal(int) {
+    g_running = false;
+}
+
+}  // namespace
 
 int main(int argc, char** argv) {
     std::string image_path = "/tmp/vehicle_status_ota.bin";
@@ -95,7 +109,22 @@ int main(int argc, char** argv) {
               << (linuxab ? "linuxab" : "mock")
               << ", image_path=" << image_path << "\n";
 
+    ::signal(SIGINT, OnSignal);
+    ::signal(SIGTERM, OnSignal);
+
+    // vsomeip 的 start() 会阻塞在事件循环里，Stop() 让它返回。
+    std::thread watcher([runtime]() {
+        while (g_running.load()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        runtime->Stop();
+    });
+
     runtime->Start();
+    g_running = false;
+    if (watcher.joinable()) {
+        watcher.join();
+    }
 
     for (auto& bs : bindSkeletons) {
         bs->StopOffer();
