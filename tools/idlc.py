@@ -600,7 +600,9 @@ def emit_skeleton_h(contract):
 
 def log_expr(field, contract):
     if field.type in contract.enums:
-        return "static_cast<%s>(%s)" % (BASE_CPP[contract.wire_of(field.type)], field.name)
+        # 枚举底层若是 u8，直接 static_cast 到 std::uint8_t 会被 cout 当字符打印，
+        # 这里统一转 unsigned，日志里始终输出数值。
+        return "static_cast<unsigned>(%s)" % field.name
     return field.name
 
 

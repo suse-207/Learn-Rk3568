@@ -44,7 +44,7 @@ void VehicleStatusServiceSkeleton::Register(com::skeleton::BindSkeleton& bind) {
             const Errc errc = service_.GetStatus(version, current_slot, ota_state);
             EncodeGetStatusResponse(response, errc, version, current_slot, ota_state);
             std::cout << "[someip] -> RESPONSE GetStatus errc="
-                      << static_cast<std::uint32_t>(errc) << " version=" << version << " current_slot=" << current_slot << " ota_state=" << static_cast<std::uint8_t>(ota_state)
+                      << static_cast<std::uint32_t>(errc) << " version=" << version << " current_slot=" << current_slot << " ota_state=" << static_cast<unsigned>(ota_state)
                       << std::endl;
             DumpBytes("[someip]    rsp", response);
         });
@@ -92,7 +92,7 @@ void VehicleStatusServiceSkeleton::Register(com::skeleton::BindSkeleton& bind) {
             const Errc errc = service_.GetProgress(update_id, ota_state, percent, detail);
             EncodeGetProgressResponse(response, errc, ota_state, percent, detail);
             std::cout << "[someip] -> RESPONSE GetProgress errc="
-                      << static_cast<std::uint32_t>(errc) << " ota_state=" << static_cast<std::uint8_t>(ota_state) << " percent=" << percent << " detail=" << detail
+                      << static_cast<std::uint32_t>(errc) << " ota_state=" << static_cast<unsigned>(ota_state) << " percent=" << percent << " detail=" << detail
                       << std::endl;
             DumpBytes("[someip]    rsp", response);
         });
@@ -126,7 +126,7 @@ void VehicleStatusServiceSkeleton::RegisterEvent(com::skeleton::BindSkeleton& bi
 void VehicleStatusServiceSkeleton::NotifyState(const OtaState& ota_state, std::uint32_t percent, const std::string& detail) {
     std::vector<std::uint8_t> data;
     EncodeOtaStateChangedEvent(data, ota_state, percent, detail);
-    std::cout << "[someip] -> NOTIFY OtaStateChanged" << " ota_state=" << static_cast<std::uint8_t>(ota_state) << " percent=" << percent << " detail=" << detail << std::endl;
+    std::cout << "[someip] -> NOTIFY OtaStateChanged" << " ota_state=" << static_cast<unsigned>(ota_state) << " percent=" << percent << " detail=" << detail << std::endl;
     for (auto* bind : binds_) {
         bind->SendEvent(kEventOtaStateChanged, data);
     }
