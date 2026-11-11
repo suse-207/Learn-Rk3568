@@ -109,12 +109,25 @@ add_library(ucm STATIC
 target_include_directories(ucm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(ucm PUBLIC platform_core com)
 
-# VehicleStatus SOME/IP contract skeleton
+# VehicleStatus：契约代码由 tools/idlc.py 生成到 generated/，不要手改。
+set(VEHICLE_STATUS_GENERATED ${CMAKE_CURRENT_SOURCE_DIR}/../generated)
 add_library(vehicle_status STATIC
-    vehicle_status/vehicle_status_protocol.cpp
-    vehicle_status/vehicle_status_service_skeleton.cpp
-    vehicle_status/vehicle_status_proxy.cpp
+    ${VEHICLE_STATUS_GENERATED}/vehicle_status/vehicle_status_protocol.cpp
+    ${VEHICLE_STATUS_GENERATED}/vehicle_status/vehicle_status_service_skeleton.cpp
+    ${VEHICLE_STATUS_GENERATED}/vehicle_status/vehicle_status_proxy.cpp
     vehicle_status/ota_vehicle_status_service.cpp
 )
-target_include_directories(vehicle_status PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(vehicle_status PUBLIC
+    ${VEHICLE_STATUS_GENERATED}
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
 target_link_libraries(vehicle_status PUBLIC com platform_core)
+
+# 契约与生成物的漂移检测：cmake --build build --target idlc_check
+add_custom_target(idlc_check
+    COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/../tools/idlc.py --check
+            ${CMAKE_CURRENT_SOURCE_DIR}/../contracts/vehicle_status.yaml
+            ${VEHICLE_STATUS_GENERATED}
+    COMMENT "idlc: 检查 generated/ 是否与契约一致"
+    VERBATIM
+)

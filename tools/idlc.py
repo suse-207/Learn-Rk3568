@@ -735,10 +735,35 @@ def write_files(files, target_dir):
     return written
 
 
+def check_files(files, target_dir):
+    stale = []
+    missing = []
+    for name, content in files:
+        path = os.path.join(target_dir, name)
+        data = content.encode("utf-8")
+        if not os.path.isfile(path):
+            missing.append(path)
+            continue
+        with open(path, "rb") as fh:
+            if fh.read() != data:
+                stale.append(path)
+    for path in missing:
+        print("idlc: 缺少生成物: %s" % path)
+    for path in stale:
+        print("idlc: 生成物过期: %s" % path)
+    if missing or stale:
+        print("idlc: 请重新运行 python3 tools/idlc.py %s %s" % ("<contract>", "<out>"))
+        return 1
+    print("idlc: 生成物与契约一致（%d 个文件）" % len(files))
+    return 0
+
+
 def main(argv):
     parser = argparse.ArgumentParser(description="从 YAML 契约生成 com 层 C++ 代码")
     parser.add_argument("contract", help="契约 YAML 路径")
     parser.add_argument("out", help="输出根目录，产物写入 <out>/<package>/")
+    parser.add_argument("--check", action="store_true",
+                        help="只比对生成物是否与契约一致，不写文件")
     args = parser.parse_args(argv)
 
     with open(args.contract, "rb") as fh:
@@ -751,6 +776,9 @@ def main(argv):
 
     files = build_files(contract)
     target = os.path.join(args.out, contract.package)
+    if args.check:
+        return check_files(files, target)
+
     written = write_files(files, target)
     print("idlc: %s -> %s (%d 个文件，%d 个有变化)" % (
         args.contract, target, len(files), len(written)))

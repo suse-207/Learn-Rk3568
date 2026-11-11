@@ -4,7 +4,7 @@
 #include <vector>
 
 #define vehicle_status vs_a
-#include "../../src/vehicle_status/vehicle_status_protocol.h"
+#include "legacy/vehicle_status/vehicle_status_protocol.h"
 #undef vehicle_status
 
 #define vehicle_status vs_b
