@@ -35,3 +35,17 @@ add_subdirectory(src)
 
 # Demo applications
 add_subdirectory(apps)
+
+# Tests (CTest).
+# The Agent's verification step reports "CHECK PARTIAL" (and refuses to commit) when the build
+# tree registers zero CTest cases, so at least one real regression test must live here.
+# idlc_byte_compare re-generates the VehicleStatus codec from contracts/vehicle_status.yaml and
+# compares it byte-for-byte against the frozen hand-written implementation in tests/idlc/legacy.
+include(CTest)
+if(BUILD_TESTING AND UNIX)
+    add_test(
+        NAME idlc_byte_compare
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/idlc/run.sh
+    )
+    set_tests_properties(idlc_byte_compare PROPERTIES TIMEOUT 120)
+endif()

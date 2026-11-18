@@ -1,0 +1,27 @@
+分析仓库中的 vsomeip3 / SOME-IP 实现，结论必须来自当前源码，而不是只根据 README 或 TODO 推断。
+
+请覆盖以下内容：
+1. CMake 如何发现 vsomeip3，以及 `WITH_VSOMEIP` / `COM_WITH_VSOMEIP` 如何影响编译。
+2. `com` 抽象层、绑定工厂和 vsomeip runtime 的创建、初始化、启动、停止和销毁调用链。
+3. 客户端服务发现、可用性回调、请求/响应和超时处理。
+4. 服务端 skeleton 注册方法、发布服务和响应处理。
+5. SOME/IP service/instance/method/event ID、序列化格式及配置文件之间是否一致。
+6. VehicleStatus 与 UCM OTA demo 如何复用通信层；明确区分真实实现、mock 和未实现能力。
+7. 并发、回调生命周期、错误处理、配置部署和测试方面的可证实风险。
+
+要求：
+- 先列出需要检查的文件和符号，然后用只读工具定位并阅读源码。
+- 至少检查相关头文件和实现文件；重要结论需用代码交叉验证。
+- 每条结论或风险都标注相对仓库根目录的 `file:line`，如 `src/com/src/vsomeip/vsomeip_bind_runtime.cpp:42 Impl::Init`。
+- 行号必须来自 `read_file` 输出；不要虚构符号或引用文档中的行号。
+- 若某项未实现或证据不足，明确写“未在源码中找到”或“当前未实现”。
+- 不要把预留的 DDS / Raw TCP 描述为已支持，也不要假设启用了 vsomeip 就意味着服务已正确部署。
+- 最终报告使用中文 Markdown，结构如下：
+
+## 概述
+## 构建与依赖
+## vsomeip 生命周期与调用链
+## 客户端与服务端行为
+## 服务契约与 OTA 集成
+## 风险与限制
+## 未解决问题
