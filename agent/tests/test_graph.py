@@ -26,7 +26,7 @@ class ScriptedLLM:
         self.bound_tool_names = {tool.name for tool in tools}
         return self
 
-    def with_structured_output(self, schema):
+    def with_structured_output(self, schema, **kwargs):
         return self
 
     def invoke(self, messages):

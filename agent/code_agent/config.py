@@ -12,6 +12,10 @@ AGENT_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = (AGENT_DIR / os.getenv("AGENT_REPO_ROOT", "..")).resolve()
 MODEL = os.getenv("AGENT_MODEL", "gpt-4o")
 REVIEW_MODEL = os.getenv("AGENT_REVIEW_MODEL", MODEL)
+# How structured output is obtained (Spec/design/review schemas). "json_schema" only works on
+# providers that implement OpenAI's response_format=json_schema; DeepSeek and most compatible
+# endpoints support tool calling instead, so function_calling is the portable default.
+STRUCTURED_METHOD = os.getenv("AGENT_STRUCTURED_METHOD", "function_calling")
 
 MEMORY_DIR = AGENT_DIR / "memory"
 PROJECT_CONTEXT_FILE = MEMORY_DIR / "project_context.md"   # Level 1

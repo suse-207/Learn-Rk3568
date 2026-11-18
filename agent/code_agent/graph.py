@@ -233,7 +233,9 @@ def build_graph(
         }
 
     def design_node(state: AgentState):
-        design = model.with_structured_output(ImplementationDesign).invoke(
+        design = model.with_structured_output(
+            ImplementationDesign, method=config.STRUCTURED_METHOD
+        ).invoke(
             [
                 SystemMessage(
                     content=(
@@ -319,7 +321,9 @@ def build_graph(
         system = SystemMessage(
             content=GRILL_SYSTEM_PROMPT.format(project_context=memory.project_context())
         )
-        decision = model.with_structured_output(GrillDecision).invoke(
+        decision = model.with_structured_output(
+            GrillDecision, method=config.STRUCTURED_METHOD
+        ).invoke(
             [system] + state["messages"]
         )
         missing_spec_items = []
@@ -483,7 +487,21 @@ def build_graph(
         if normalized in ("approve", "approved", "y", "yes"):
             return Command(
                 goto="agent",
-                update={"plan_approved": True, "review_result": ""},
+                update={
+                    "plan_approved": True,
+                    "review_result": "",
+                    # Without this nudge the implementation agent sees its own "please approve"
+                    # message as the last turn and just asks for approval again.
+                    "messages": [
+                        HumanMessage(
+                            content=(
+                                "[plan-approved] 用户已批准上面的架构与文件计划，现在开始实施。"
+                                "先读取目标文件的精确原文，再用 edit_file/create_file 提交第一个改动；"
+                                "每次写入前都会显示 Diff 等待人工批准。不要再次征求计划批准。"
+                            )
+                        )
+                    ],
+                },
             )
         if normalized in ("cancel", "取消"):
             return Command(
@@ -521,6 +539,8 @@ def build_graph(
     def route_after_agent(state: AgentState):
         calls = getattr(state["messages"][-1], "tool_calls", None) or []
         if not calls:
+            if state.get("commit_result", "").startswith("COMMIT SUCCEEDED:"):
+                return "verify"
             if (
                 state.get("workflow_mode") == "implementation"
                 and state.get("plan_approved")
@@ -689,7 +709,9 @@ def build_graph(
         reviewer_model = reviewer
         if reviewer_model is None:
             reviewer_model = ChatOpenAI(model=config.REVIEW_MODEL, temperature=0)
-        decision = reviewer_model.with_structured_output(CodeReview).invoke(
+        decision = reviewer_model.with_structured_output(
+            CodeReview, method=config.STRUCTURED_METHOD
+        ).invoke(
             [
                 SystemMessage(content=REVIEW_SYSTEM_PROMPT),
                 HumanMessage(content=prompt),
@@ -738,6 +760,10 @@ def build_graph(
 
     def commit_approval_node(state: AgentState):
         paths = sorted(state.get("modified_files") or {})
+        if state.get("commit_result", "").startswith("COMMIT SUCCEEDED:"):
+            # Re-entering this node after a successful commit used to attempt a second commit,
+            # find a clean working tree and overwrite the success with "COMMIT BLOCKED".
+            return Command(goto="verify")
         if not state.get("plan_approved"):
             return Command(
                 goto="verify",
