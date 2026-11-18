@@ -15,3 +15,6 @@ deploy-aarch64.tar.gz
 build-aarch64-debug/
 tests/idlc/.gen/
 build-agent-*/
+.env
+.env.*
+!*.env.example
