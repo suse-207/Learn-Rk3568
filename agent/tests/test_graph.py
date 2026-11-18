@@ -23,7 +23,7 @@ class ScriptedLLM:
         self.invocations = []
 
     def bind_tools(self, tools):
-        self.bound_tool_names = {tool.name for tool in tools}
+        self.bound_tool_names.update(tool.name for tool in tools)
         return self
 
     def with_structured_output(self, schema, **kwargs):
@@ -252,6 +252,15 @@ def test_read_only_graph_does_not_bind_write_tools(repo):
     assert "build_project" not in llm.bound_tool_names
 
 
+def test_write_mode_does_not_bind_build_project(repo):
+    # Building is the orchestrated `checks` step's job; binding a build tool made every task
+    # build twice (once by the model, once by checks).
+    llm = ScriptedLLM([AIMessage(content="Done.")])
+    build_graph(MemorySaver(), allow_write=True, llm=llm)
+    assert "edit_file" in llm.bound_tool_names
+    assert "build_project" not in llm.bound_tool_names
+
+
 def test_internal_approval_state_is_not_exposed_in_write_tool_schema():
     tools = {tool.name: tool for tool in _build_write_tools()}
 
@@ -261,7 +270,7 @@ def test_internal_approval_state_is_not_exposed_in_write_tool_schema():
         "new_str",
     }
     assert set(tools["create_file"].tool_call_schema.model_fields) == {"path", "content"}
-    assert set(tools["build_project"].tool_call_schema.model_fields) == {"mode"}
+    assert "build_project" not in tools
 
 
 def _sample_spec():

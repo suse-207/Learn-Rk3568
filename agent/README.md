@@ -9,7 +9,9 @@
 - 三级记忆：项目上下文、主题知识和任务进度；LangGraph SQLite checkpoint 保存短期会话。
 - 实现任务走受控链路：需求澄清 → Spec 审批 → 只读源码调查 → 架构/文件计划审批
   → 逐个 Diff 审批后写入。
-- Spec 的 `allowed_paths` 会在写工具中强制检查；创建/编辑文件和构建操作仍各自需要人工批准。
+- Spec 的 `allowed_paths` 会在写工具中强制检查；创建/编辑文件需要人工批准。
+- 模型不能自行构建：Diff 批准后，由流程固定的校验步骤统一执行 cppcheck、CMake Debug 构建与 CTest，
+  结果回灌给模型用于修复（一次任务只构建一次）。
 - 校验按固定顺序执行：cppcheck（变更 C/C++ 文件）、Python compileall/Agent pytest（变更 Python 文件）、
   CMake Debug 构建、CTest；每轮执行前都需批准。缺少 CTest 用例会标记为部分验证。
 - 独立 Reviewer 审查最终 Diff；有问题时最多自动修复两轮，每轮仍须重新批准 Diff 并重新校验。

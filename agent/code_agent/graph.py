@@ -154,20 +154,12 @@ def _build_write_tools():
         )
         return write_tools.create_file(path, content)
 
-    def scoped_build_project(
-        plan_approved: Annotated[bool | None, InjectedState("plan_approved")] = None,
-        repair_rounds: Annotated[int | None, InjectedState("repair_rounds")] = None,
-        check_failures: Annotated[int | None, InjectedState("check_failures")] = None,
-        mode: str = "debug",
-    ) -> str:
-        """Configure and compile the CMake project after the implementation plan is approved."""
-        require_approved_plan(plan_approved, repair_rounds or 0, check_failures or 0)
-        return write_tools.build_project(mode)
-
+    # build_project is intentionally NOT bound: the fixed `checks` step already configures,
+    # builds and runs CTest once. Letting the model build first doubled the work and cost an
+    # extra approval round for the same information.
     return [
         StructuredTool.from_function(scoped_edit_file, name="edit_file"),
         StructuredTool.from_function(scoped_create_file, name="create_file"),
-        StructuredTool.from_function(scoped_build_project, name="build_project"),
     ]
 
 

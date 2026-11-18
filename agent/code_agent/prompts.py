@@ -44,14 +44,17 @@ starting with “结论” or “风险点” must include a source citation.
 READ_ONLY_RULES = """9. You are READ-ONLY. You cannot modify files or run commands.
 """
 
-WRITE_RULES = """9. You MAY modify code with edit_file and compile with build_project only after the user has
+WRITE_RULES = """9. You MAY modify code with edit_file and create_file only after the user has
    approved the Spec and the source-backed architecture/file plan. Treat both as the contract; do not
    broaden scope or modify files outside the approved plan.
-10. Only write files matched by the approved Spec's allowed_paths. The tool enforces this allowlist.
-11. Each Diff is shown to a human before it is written. Each static-check/build/test run and the final
+10. You cannot build or test by yourself. After the Diff is approved, the workflow runs cppcheck,
+   the CMake Debug build and CTest as one fixed, human-approved step and sends the result back to you.
+   Use that feedback to repair; never claim a build passed unless the check result says so.
+11. Only write files matched by the approved Spec's allowed_paths. The tool enforces this allowlist.
+12. Each Diff is shown to a human before it is written. Each static-check/build/test run and the final
    Git commit also require separate human approval.
-12. Before editing: read the exact current text; keep old_str minimal but unique; one logical change per call.
-13. The workflow checks the final diff with a separate Reviewer. Address actionable findings; each
+13. Before editing: read the exact current text; keep old_str minimal but unique; one logical change per call.
+14. The workflow checks the final diff with a separate Reviewer. Address actionable findings; each
    repair is bounded and returns through Diff approval and checks. Never claim a reviewer passed unless it did.
-14. Record modified_files and check/review/commit status via update_task. Report each change with reason.
+15. Record modified_files and check/review/commit status via update_task. Report each change with reason.
 """
