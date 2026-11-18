@@ -1,3 +1,4 @@
+import json
 import os
 
 import pytest
@@ -156,7 +157,18 @@ def test_project_checks_build_and_run_registered_ctest_cases(repo, monkeypatch):
 
 
 def test_cppcheck_uses_compilation_database_when_present(repo, monkeypatch):
-    (repo / "compile_commands.json").write_text("[]", encoding="utf-8")
+    (repo / "compile_commands.json").write_text(
+        json.dumps(
+            [
+                {
+                    "directory": str(repo),
+                    "file": "src/sample.cpp",
+                    "command": "c++ -c src/sample.cpp",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
     calls = []
 
     monkeypatch.setattr(write_tools.shutil, "which", lambda _: "/usr/bin/cppcheck")
@@ -175,6 +187,42 @@ def test_cppcheck_uses_compilation_database_when_present(repo, monkeypatch):
     assert "--file-filter=%s" % (repo / "src/sample.cpp") in cppcheck_cmd
     assert "--std=c++17" not in cppcheck_cmd
     assert "src/sample.cpp" not in cppcheck_cmd
+
+
+def test_cppcheck_checks_headers_standalone_not_via_project(repo, monkeypatch):
+    # Headers are absent from compile_commands.json; a --file-filter that matches nothing makes
+    # cppcheck fail with "could not find any files matching the filter".
+    (repo / "compile_commands.json").write_text(
+        json.dumps(
+            [
+                {
+                    "directory": str(repo),
+                    "file": "src/sample.cpp",
+                    "command": "c++ -c src/sample.cpp",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    calls = []
+
+    monkeypatch.setattr(write_tools.shutil, "which", lambda _: "/usr/bin/cppcheck")
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        output = b"Total Tests: 1\n" if command == ["ctest", "-N"] else b""
+        return type("Result", (), {"stdout": output, "stderr": b"", "returncode": 0})()
+
+    monkeypatch.setattr(write_tools.subprocess, "run", fake_run)
+
+    result = write_tools.run_project_checks(["src/sample.h"])
+
+    cppcheck_cmd = calls[0]
+    assert not any(arg.startswith("--project=") for arg in cppcheck_cmd)
+    assert "--language=c++" in cppcheck_cmd
+    assert "--std=c++17" in cppcheck_cmd
+    assert "src/sample.h" in cppcheck_cmd
+    assert result.startswith("CHECK PASSED:")
 
 
 def test_project_checks_report_when_no_ctest_cases_are_registered(repo, monkeypatch):

@@ -1,6 +1,7 @@
 """Side-effecting tools; execution is gated by explicit graph approvals."""
 import difflib
 import hashlib
+import json
 import os
 import re
 import shlex
@@ -275,7 +276,29 @@ def run_project_checks(paths: list[str]) -> str:
         if not cppcheck:
             return "CHECK FAILED: cppcheck is required for C/C++ changes but is not installed."
         project_file = config.REPO_ROOT / "compile_commands.json"
-        cmd = [
+        project_files = set()
+        if project_file.is_file():
+            try:
+                entries = json.loads(project_file.read_text(encoding="utf-8"))
+                project_files = {
+                    str((config.REPO_ROOT / entry["file"]).resolve())
+                    for entry in entries
+                    if entry.get("file")
+                }
+            except (OSError, ValueError, KeyError, TypeError):
+                project_files = set()
+
+        # Headers never appear in compile_commands.json, and a --file-filter that matches nothing
+        # makes cppcheck exit 1 with "could not find any files matching the filter". Split the
+        # changed files: translation units go through the database, the rest are checked standalone.
+        in_project = [
+            path
+            for path in cpp_paths
+            if str((config.REPO_ROOT / path).resolve()) in project_files
+        ]
+        standalone = [path for path in cpp_paths if path not in in_project]
+
+        base = [
             cppcheck,
             "--enable=warning,performance,portability",
             "--error-exitcode=1",
@@ -284,34 +307,37 @@ def run_project_checks(paths: list[str]) -> str:
             # cppcheck's preprocessor; it is unrelated to the agent's own change.
             "--suppress=preprocessorErrorDirective",
         ]
-        if project_file.is_file():
-            # Use the compilation database so per-file include paths and -D flags match the build.
+        commands = []
+        if in_project:
             # cppcheck resolves --file-filter against the project path; with an absolute project
             # file the filters must be absolute too (a relative filter silently matches nothing).
-            cmd.append("--project=%s" % project_file)
-            cmd.extend(
-                "--file-filter=%s" % (config.REPO_ROOT / path) for path in cpp_paths
+            commands.append(
+                base
+                + ["--project=%s" % project_file]
+                + ["--file-filter=%s" % (config.REPO_ROOT / path) for path in in_project]
             )
-        else:
-            cmd.append("--std=c++17")
-            cmd.extend(cpp_paths)
-        try:
-            result = subprocess.run(
-                cmd, cwd=str(config.REPO_ROOT), capture_output=True,
-                timeout=config.BUILD_TIMEOUT, env=_build_environment(),
-            )
-        except subprocess.TimeoutExpired as exc:
-            return "CHECK FAILED: cppcheck timed out after %ds\n%s" % (
-                config.BUILD_TIMEOUT,
-                str(exc.stdout or ""),
-            )
-        text = (result.stdout + result.stderr).decode("utf-8", errors="replace")
-        output.append("$ cppcheck %s\n%s" % (" ".join(cpp_paths), text))
-        if result.returncode != 0:
-            return "CHECK FAILED: cppcheck (exit=%d)\n%s" % (
-                result.returncode,
-                _truncate_output("\n".join(output)),
-            )
+        if standalone:
+            # .h files are guessed as C by cppcheck; force C++ so a header-only change parses.
+            commands.append(base + ["--language=c++", "--std=c++17"] + standalone)
+
+        for cmd in commands:
+            try:
+                result = subprocess.run(
+                    cmd, cwd=str(config.REPO_ROOT), capture_output=True,
+                    timeout=config.BUILD_TIMEOUT, env=_build_environment(),
+                )
+            except subprocess.TimeoutExpired as exc:
+                return "CHECK FAILED: cppcheck timed out after %ds\n%s" % (
+                    config.BUILD_TIMEOUT,
+                    str(exc.stdout or ""),
+                )
+            text = (result.stdout + result.stderr).decode("utf-8", errors="replace")
+            output.append("$ cppcheck %s\n%s" % (" ".join(cmd[1:]), text))
+            if result.returncode != 0:
+                return "CHECK FAILED: cppcheck (exit=%d)\n%s" % (
+                    result.returncode,
+                    _truncate_output("\n".join(output)),
+                )
     else:
         output.append("STATIC CHECK: cppcheck skipped (no C/C++ files changed).")
 
