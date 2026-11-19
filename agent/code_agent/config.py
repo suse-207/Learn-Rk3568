@@ -44,6 +44,13 @@ MAX_REVIEW_DIFF = 40000
 
 MAX_READ_LINES = 150
 MAX_SEARCH_HITS = 80
+# Context folding: once the messages sent to the model exceed this budget, the oldest turns are
+# summarised (not truncated -- truncation made the model forget what it had read and re-read it).
+CONTEXT_BUDGET_CHARS = int(os.getenv("AGENT_CONTEXT_BUDGET_CHARS", "40000"))
+CONTEXT_KEEP_MESSAGES = int(os.getenv("AGENT_CONTEXT_KEEP_MESSAGES", "14"))
+CONTEXT_FOLD_CHARS = int(os.getenv("AGENT_CONTEXT_FOLD_CHARS", "30000"))
+CONTEXT_MIN_FOLD_CHARS = 4000
+CONTEXT_SUMMARY_MAX_CHARS = 8000
 # One broad question can legitimately need 40+ tool calls (agent+tool pairs); 60 was too low and
 # aborted the whole task with GraphRecursionError. Override with AGENT_RECURSION_LIMIT if needed.
 RECURSION_LIMIT = int(os.getenv("AGENT_RECURSION_LIMIT", "200"))

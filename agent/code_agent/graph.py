@@ -18,7 +18,12 @@ from langgraph.prebuilt import InjectedState, ToolNode
 from langgraph.types import Command, interrupt
 
 from . import code_tools, config, memory, verifier, write_tools
-from .prompts import READ_ONLY_RULES, SYSTEM_PROMPT, WRITE_RULES
+from .prompts import (
+    CONTEXT_SUMMARY_PROMPT,
+    READ_ONLY_RULES,
+    SYSTEM_PROMPT,
+    WRITE_RULES,
+)
 from .review_workflow import REVIEW_SYSTEM_PROMPT, CodeReview
 from .spec_workflow import (
     DESIGN_SYSTEM_PROMPT,
@@ -55,6 +60,8 @@ class AgentState(TypedDict):
     repair_rounds: int
     check_failures: int
     commit_result: str
+    context_summary: str
+    folded_count: int
 
 
 READ_TOOLS = [
@@ -163,6 +170,69 @@ def _build_write_tools():
     ]
 
 
+def _context_chars(messages) -> int:
+    return sum(len(str(m.content)) for m in messages)
+
+
+def _fold_context(state, model):
+    """Summarise the oldest turns once the prompt budget is exceeded.
+
+    Truncating old tool output (the first attempt at this) made the model forget what it had
+    already read and re-read the same file up to 8 times; an LLM summary keeps the facts without
+    the bulk. Returns ``(summary, folded_count, window)`` where ``window`` is what should be sent
+    to the model next. The window never starts with a ToolMessage, otherwise the
+    AIMessage(tool_calls)/ToolMessage pairing sent to the provider would be invalid.
+    """
+    messages = state["messages"]
+    folded = max(0, int(state.get("folded_count") or 0))
+    summary = (state.get("context_summary") or "").strip()
+    window = messages[folded:]
+
+    if len(window) <= config.CONTEXT_KEEP_MESSAGES:
+        return summary, folded, window
+    if _context_chars(window) <= config.CONTEXT_BUDGET_CHARS:
+        return summary, folded, window
+
+    prefix = [0]
+    for message in window:
+        prefix.append(prefix[-1] + len(str(message.content)))
+
+    cut = max(1, len(window) - config.CONTEXT_KEEP_MESSAGES)
+    while cut > 1 and prefix[cut] > config.CONTEXT_FOLD_CHARS:
+        cut -= 1
+    # Fold a little more if the kept window would otherwise start with a tool result.
+    while cut < len(window) - 1 and isinstance(window[cut], ToolMessage):
+        cut += 1
+
+    if cut >= len(window) or prefix[cut] < config.CONTEXT_MIN_FOLD_CHARS:
+        return summary, folded, window
+
+    lines = []
+    for message in window[:cut]:
+        body = str(message.content)
+        if getattr(message, "tool_calls", None):
+            body += " [tool_calls: %s]" % ", ".join(
+                call["name"] for call in message.tool_calls
+            )
+        lines.append(
+            "【%s】%s" % (type(message).__name__.replace("Message", ""), body[:4000])
+        )
+    prompt = "已有摘要：\n%s\n\n新增对话：\n%s" % (summary or "（无）", "\n\n".join(lines))
+    summarized = model.invoke(
+        [
+            SystemMessage(content=CONTEXT_SUMMARY_PROMPT),
+            HumanMessage(content=prompt[: config.CONTEXT_FOLD_CHARS * 2]),
+        ]
+    )
+    text = (
+        summarized.content
+        if isinstance(summarized.content, str)
+        else str(summarized.content)
+    )
+    new_summary = text.strip()[: config.CONTEXT_SUMMARY_MAX_CHARS]
+    return new_summary, folded + cut, messages[folded + cut:]
+
+
 def build_graph(
     checkpointer=None,
     allow_write: bool = False,
@@ -178,6 +248,7 @@ def build_graph(
     def agent_node(state: AgentState):
         # Rebuild the system prompt every turn so freshly saved memory is visible.
         approved_spec = state.get("approved_spec")
+        summary, folded, window = _fold_context(state, model)
         sys = SystemMessage(
             content=SYSTEM_PROMPT.format(
                 project_context=memory.project_context(),
@@ -192,10 +263,15 @@ def build_graph(
                 implementation_design=(
                     state.get("design") or "(尚无已批准的架构方案)"
                 ),
+                context_summary=summary or "(暂无；较早的对话尚未压缩)",
                 mode_rules=WRITE_RULES if allow_write else READ_ONLY_RULES,
             )
         )
-        return {"messages": [bound_llm.invoke([sys] + state["messages"])]}
+        return {
+            "messages": [bound_llm.invoke([sys] + window)],
+            "context_summary": summary,
+            "folded_count": folded,
+        }
 
     def discovery_agent_node(state: AgentState):
         system = SystemMessage(

@@ -19,6 +19,9 @@ OTA, or diagnostics.
 # Approved architecture and file plan
 {implementation_design}
 
+# Compressed earlier conversation (older tool output was summarised; treat it as already read)
+{context_summary}
+
 # Working rules (ReAct)
 1. Plan first: briefly list which files/symbols you need, then use tools. Never guess code you have not read.
 2. Use list_files / search_symbol / search_code to locate, then read_file to verify. Read declarations and implementations.
@@ -58,3 +61,15 @@ WRITE_RULES = """9. You MAY modify code with edit_file and create_file only afte
    repair is bounded and returns through Diff approval and checks. Never claim a reviewer passed unless it did.
 15. Record modified_files and check/review/commit status via update_task. Report each change with reason.
 """
+
+
+CONTEXT_SUMMARY_PROMPT = """你是同一个 Agent 的上下文压缩器。把下面较早的对话压缩成后续还能直接使用的要点。
+
+必须保留：
+- 已经读过的文件路径 + 行号范围，以及由此得出的结论；
+- 关键标识符、函数名、常量，以及报错原文里最关键的那一行；
+- 已完成的动作（改了哪些文件）、未完成或待确认的事项、被否决的方案。
+
+必须删除：寒暄、重复的工具输出原文、与结论无关的段落。
+
+输出中文条目，最多 30 条；不要编造对话里没有出现的内容。"""
