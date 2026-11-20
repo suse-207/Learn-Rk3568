@@ -204,7 +204,7 @@ RESULT: PASSED
 
 1. 缺陷稳定复现，且静默（串台返回成功）；
 2. 第 4 节策略在同一测试集内消除了串台与错误超时；
-3. **该测试集只覆盖单 handle**（`same`/`steal` 都在一个 proxy 上发起）。跨 handle 场景由任务 S2 补齐，用来验证 2.4 的约束。
+3. 原先测试集只覆盖单 handle。S2 已补 `cross` 场景（同一个 application 上两个句柄并发调同一方法），用来验证 2.4 的约束：该场景在修复前失败（一个请求超时 3012 ms），修复后通过。
 
 ---
 
@@ -331,7 +331,7 @@ bash tests/com_concurrency/run.sh                 # RESULT: PASSED
 | --- | --- | --- |
 | **S0** | 本文档 + `tests/com_concurrency/` 入库（测试不纳入 CMake/CTest） | 文档评审通过；`run.sh` 在未修正代码上失败、在探针实现上通过（见 3.2 / 3.3） |
 | **S1** | 新增 `VsomeipRequestDispatcher`（稳定 handler + pending + 墓碑 + 超时），`SendRequest` 改走 dispatcher | `seq/diff/same/steal` 全通过；`diag_server` 构建通过 |
-| **S2** | 新增 `cross` 场景：两个 proxy 并发调同一服务的同一方法 | `cross` 通过（验证 I1） |
+| **S2** | 新增 `cross` 场景：同一应用内两个句柄（各自对应一个 proxy 的绑定句柄）并发调同一服务的同一方法 | `cross` 通过（验证 I1） |
 | **S3** | `SendRequestAsync` 迁入 dispatcher + 4.4 的两个重载 | `async` 场景（并发 + 超时）通过 |
 | **S4** | 生命周期收尾：`Stop()`/析构 settle 全部 pending、统一注销 handler | `shutdown` 场景通过（有在途请求时 Stop，全部 future 以错误结束） |
 | **S5** | `late`、`stress` 场景；更新 `src/com/README.md:312` 与异步超时说明 | `late`、`stress` 通过；README 与实现一致 |
@@ -344,7 +344,7 @@ bash tests/com_concurrency/run.sh                 # RESULT: PASSED
 | `diff` | 不同方法并发 | 通过 | 保持 | S1 |
 | `same` | 同方法并发（单 handle） | 失败 | 通过 | S1 |
 | `steal` | 超时与在途并存 | 失败 | 1 fail / 1 match | S1 |
-| `cross` | 两 proxy 同服务同方法并发 | 未覆盖 | 各拿各的 payload | S2 |
+| `cross` | 同一服务同方法，分属同一 application 的两个句柄 | 修复前失败 | 通过 | S2 |
 | `async` | `SendRequestAsync` 并发 + 超时 | 未覆盖 | 与同步路径一致 | S3 |
 | `shutdown` | 有在途请求时 `Stop()` | 未覆盖 | 全部以错误结束，无泄漏 | S4 |
 | `late` | 超时后重发同方法，迟到响应到达 | 未覆盖 | 迟到被丢弃，新请求不受影响 | S5 |

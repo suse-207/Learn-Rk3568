@@ -73,7 +73,7 @@ check() {
     fi
 }
 
-for scenario in seq diff same steal; do
+for scenario in seq diff same steal cross; do
     echo "== scenario: $scenario"
     stop_all
     rm -f "$ROUTING_SOCKET"

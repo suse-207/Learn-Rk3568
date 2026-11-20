@@ -4,7 +4,7 @@
 
 设计与任务拆解见 [`docs/com-runtime-design.md`](../../docs/com-runtime-design.md)。
 
-## 缺陷现象（当前代码）
+## 缺陷现象（修复前）
 
 每次 `SendRequest` 都用 `(service, instance, method)` 为键 `register_message_handler`，
 vsomeip 对同一三元组是覆盖语义，于是并发调用必然：
@@ -14,9 +14,9 @@ vsomeip 对同一三元组是覆盖语义，于是并发调用必然：
 - 如果先超时的那一方在另一方的 handler 注册之后超时，它会顺手把别人的 handler
   也 unregister 掉，导致两个请求同时失败。
 
-## 期望的修正方向
+## 修正
 
-一句话：把在途请求表放到与 handler 注册同域的位置（runtime 级请求分发器），
+在途请求表放到与 handler 注册同域的位置（runtime 级请求分发器），
 按 vsomeip 分配的 session 精确匹配响应，超时只摘自己并记墓碑。
 
 具体做法、锁边界与不变量见设计稿第 4 节，这里不重复，避免两处描述漂移。
@@ -27,8 +27,9 @@ vsomeip 对同一三元组是覆盖语义，于是并发调用必然：
 |------|------|------|------|
 | `seq` | 否 | 同一方法 | 两次都 MATCH |
 | `diff` | 是 | 不同方法 | 两次都 MATCH |
-| `same` | 是 | 同一方法 | 两次都 MATCH（当前代码：一个 MISMATCH + 一个 FAIL） |
-| `steal` | 是 | 同一方法，先发者 200ms 超时 | 先发者 FAIL(errc=2)，后者 MATCH（当前代码：两个都 FAIL） |
+| `same` | 是 | 同一方法、同一句柄 | 两次都 MATCH（修复前：一个 MISMATCH + 一个 FAIL） |
+| `steal` | 是 | 同一方法，先发者 200ms 超时 | 先发者 FAIL(errc=2)，后者 MATCH（修复前：两个都 FAIL） |
+| `cross` | 是 | 同一方法，分属同一 application 的两个句柄 | 两次都 MATCH（修复前：串台或假超时） |
 
 服务端方法 `0x0001` 回显请求中的 u32，`0x0002` 回显 u32+1000，两者都延迟 300ms。
 

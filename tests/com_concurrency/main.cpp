@@ -12,6 +12,9 @@
 //   diff   - two concurrent calls on different methods   (must both succeed)
 //   same   - two concurrent calls on the same method     (must both succeed)
 //   steal  - one call times out while another is in flight (only the first fails)
+//   cross  - two handles on the same application call the same method concurrently
+//            (must both succeed; vsomeip keeps one handler per (svc,ins,method)
+//            per application, so this is the cross-handle variant of "same")
 //
 // The server answers method 0x0001 with the u32 id it received and method 0x0002
 // with id + 1000, both after 300 ms.
@@ -147,12 +150,12 @@ int RunClient() {
 
     bindRuntime->RegisterFindServiceHandle(
         findHandle,
-        [&started, runtime, start](com::ServiceHandleContainer<std::shared_ptr<com::proxy::BindHandle>> const &handles) {
+        [&started, runtime, bindRuntime, start](com::ServiceHandleContainer<std::shared_ptr<com::proxy::BindHandle>> const &handles) {
             if (started.exchange(true)) {
                 return;
             }
             auto copied = handles;
-            std::thread([copied, runtime, start]() {
+            std::thread([copied, runtime, bindRuntime, start]() {
                 for (auto const &handle : copied) {
                     if (!handle || !handle->IsValid()) {
                         std::cout << "[client] invalid handle" << std::endl;
@@ -160,7 +163,9 @@ int RunClient() {
                     }
 
                     std::atomic<int> ready{0};
-                    auto run = [&](int callerId, std::uint16_t method, bool waitForPair, int timeoutMs) {
+                    auto run = [&](std::shared_ptr<com::proxy::BindHandle> const &target,
+                                   int callerId, std::uint16_t method, bool waitForPair,
+                                   int timeoutMs) {
                         ready.fetch_add(1);
                         if (waitForPair) {
                             while (ready.load() < 2) {
@@ -172,7 +177,7 @@ int RunClient() {
                         PutU32(request, static_cast<std::uint32_t>(callerId));
 
                         auto t0 = std::chrono::steady_clock::now();
-                        auto result = handle->SendRequest(
+                        auto result = target->SendRequest(
                             method, request, std::chrono::milliseconds(timeoutMs));
                         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                                            std::chrono::steady_clock::now() - t0).count();
@@ -194,23 +199,39 @@ int RunClient() {
                     };
 
                     if (g_scenario == "seq") {
-                        run(1, kMethodEcho, false, 3000);
-                        run(2, kMethodEcho, false, 3000);
+                        run(handle, 1, kMethodEcho, false, 3000);
+                        run(handle, 2, kMethodEcho, false, 3000);
                     } else if (g_scenario == "diff") {
-                        std::thread first(run, 1, kMethodEcho, true, 3000);
-                        std::thread second(run, 2, kMethodEchoOffset, true, 3000);
+                        std::thread first(run, handle, 1, kMethodEcho, true, 3000);
+                        std::thread second(run, handle, 2, kMethodEchoOffset, true, 3000);
                         first.join();
                         second.join();
                     } else if (g_scenario == "steal") {
                         // The first call gives up before the server answers; it must
                         // not take the second call's response handler with it.
-                        std::thread first(run, 1, kMethodEcho, true, 200);
-                        std::thread second(run, 2, kMethodEcho, true, 3000);
+                        std::thread first(run, handle, 1, kMethodEcho, true, 200);
+                        std::thread second(run, handle, 2, kMethodEcho, true, 3000);
                         first.join();
                         second.join();
+                    } else if (g_scenario == "cross") {
+                        // 同一 application 上的第二个句柄，相当于“另一个 proxy 的绑定句柄”。
+                        // vsomeip 对 (service, instance, method) 只有一个 handler 槽位，
+                        // 所以这一场景验证的是请求表作用域是否与 handler 注册作用域一致。
+                        com::ServiceHandleContainer<std::shared_ptr<com::proxy::BindHandle>> extra;
+                        bindRuntime->GetAvailableServiceHandles(kService, kInstance, extra);
+                        std::shared_ptr<com::proxy::BindHandle> second =
+                            extra.empty() ? std::shared_ptr<com::proxy::BindHandle>() : extra.front();
+                        if (!second || !second->IsValid()) {
+                            std::cout << "[client] cross: second handle unavailable" << std::endl;
+                        } else {
+                            std::thread first(run, handle, 1, kMethodEcho, true, 3000);
+                            std::thread other(run, second, 2, kMethodEcho, true, 3000);
+                            first.join();
+                            other.join();
+                        }
                     } else {
-                        std::thread first(run, 1, kMethodEcho, true, 3000);
-                        std::thread second(run, 2, kMethodEcho, true, 3000);
+                        std::thread first(run, handle, 1, kMethodEcho, true, 3000);
+                        std::thread second(run, handle, 2, kMethodEcho, true, 3000);
                         first.join();
                         second.join();
                     }
