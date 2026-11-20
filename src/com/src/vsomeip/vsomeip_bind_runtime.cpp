@@ -7,6 +7,7 @@
 #include "com/vsomeip/vsomeip_bind_runtime.h"
 #include "com/vsomeip/vsomeip_bind_handle.h"
 #include "com/vsomeip/vsomeip_bind_skeleton.h"
+#include "com/vsomeip/vsomeip_request_dispatcher.h"
 #include "com/runtime.h"
 #include <vsomeip/runtime.hpp>
 #include <vsomeip/application.hpp>
@@ -56,12 +57,21 @@ namespace com
                     return Result<void>::FromError(ComErrc::kNotInitialized);
                 }
 
+                // 在途请求表与 handler 注册都挂在 application 作用域上：
+                // 每个 runtime 一个 dispatcher，所有 handle 共用。
+                dispatcher_ = std::make_shared<VsomeipRequestDispatcher>(vsomeipApp_);
+
                 initialized_ = true;
                 return Result<void>::FromValue();
             }
 
             Result<void> Deinit() noexcept
             {
+                if (dispatcher_)
+                {
+                    dispatcher_->Stop();
+                    dispatcher_.reset();
+                }
                 if (vsomeipApp_)
                 {
                     vsomeipApp_->stop();
@@ -82,6 +92,10 @@ namespace com
 
             void Stop() noexcept
             {
+                if (dispatcher_)
+                {
+                    dispatcher_->Stop();
+                }
                 if (vsomeipApp_)
                 {
                     vsomeipApp_->stop();
@@ -90,6 +104,7 @@ namespace com
 
             std::shared_ptr<vsomeip_v3::runtime> vsomeipRuntime_;
             std::shared_ptr<vsomeip_v3::application> vsomeipApp_;
+            std::shared_ptr<VsomeipRequestDispatcher> dispatcher_;
             std::string applicationName_;
             bool initialized_{false};
         };
@@ -167,6 +182,7 @@ namespace com
                 // Create bind handle
                 auto bindHandle = std::make_shared<VsomeipBindHandle>(
                     impl_->vsomeipApp_,
+                    impl_->dispatcher_,
                     serviceIdentifier,
                     instanceIdentifier);
 
@@ -205,6 +221,7 @@ namespace com
                             // Create bind handle and notify
                             auto bindHandle = std::make_shared<VsomeipBindHandle>(
                                 impl_->vsomeipApp_,
+                                impl_->dispatcher_,
                                 static_cast<ServiceIdentifier>(service),
                                 static_cast<InstanceIdentifier>(instance));
 

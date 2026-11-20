@@ -38,11 +38,13 @@ if(COM_WITH_VSOMEIP)
         src/vsomeip/vsomeip_bind_runtime.cpp
         src/vsomeip/vsomeip_bind_handle.cpp
         src/vsomeip/vsomeip_bind_skeleton.cpp
+        src/vsomeip/vsomeip_request_dispatcher.cpp
     )
     list(APPEND COM_HEADERS
         include/com/vsomeip/vsomeip_bind_runtime.h
         include/com/vsomeip/vsomeip_bind_handle.h
         include/com/vsomeip/vsomeip_bind_skeleton.h
+        include/com/vsomeip/vsomeip_request_dispatcher.h
     )
 endif()
 
