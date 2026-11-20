@@ -60,7 +60,6 @@ target_include_directories(capi_common
     PUBLIC
         ${CAPI_COMPAT_ROOT}/include
         ${ARA_CORE_ROOT}/include
-        ${CAPI_COMMON_ROOT}/core-types/include
         ${CAPI_COMMON_ROOT}/common/include
         ${CAPI_COMMON_ROOT}/diag-common/include
         ${CAPI_COMMON_ROOT}/serialize/include
