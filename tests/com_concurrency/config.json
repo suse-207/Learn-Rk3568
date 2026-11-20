@@ -1,0 +1,24 @@
+{
+    "unicast": "127.0.0.1",
+    "logging": { "level": "warning", "console": "true" },
+    "applications": [
+        { "name": "cc-server", "id": "0x2301" },
+        { "name": "cc-client", "id": "0x2302" }
+    ],
+    "services": [
+        {
+            "service": "0x6100",
+            "instance": "0x0001",
+            "reliable": { "port": "30530" },
+            "unreliable": "31012"
+        }
+    ],
+    "routing": "cc-server",
+    "service-discovery": {
+        "enable": "true",
+        "multicast": "224.244.224.245",
+        "port": "30490",
+        "protocol": "udp",
+        "ttl": "60"
+    }
+}
