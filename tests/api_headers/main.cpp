@@ -14,6 +14,16 @@
 #include "com/api/proxy.h"
 #include "com/api/skeleton.h"
 
+namespace
+{
+    /// @brief 用最小 mock 代理验证 ServiceProxy<TProxy> 模板接口可用
+    struct MockProxy
+    {
+        static constexpr com::ServiceIdentifier serviceIdentifier = 0x6100;
+        explicit MockProxy(com::proxy::HandleType const &) noexcept {}
+    };
+} // namespace
+
 int main()
 {
     // 只为让头文件里的类型被真正用到（避免"只是没展开"的假通过）
@@ -23,14 +33,15 @@ int main()
     com::ServiceIdentifier serviceId = 0x6100;
     com::MethodIdentifier methodId = 0x0001;
     com::ComErrc errc = com::ComErrc::kServiceNotAvailable;
-    com::proxy::ServiceProxy *proxy = nullptr;
+    com::proxy::HandleType handle;
+    (void)com::proxy::ServiceProxy<MockProxy>::FindService();
+    (void)com::proxy::ServiceProxy<MockProxy>::Create(handle);
     com::skeleton::Skeleton *skeleton = nullptr;
     (void)payload;
     (void)state;
     (void)serviceId;
     (void)methodId;
     (void)errc;
-    (void)proxy;
     (void)skeleton;
     return 0;
 }

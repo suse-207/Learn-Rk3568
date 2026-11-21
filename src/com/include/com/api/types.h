@@ -120,7 +120,9 @@ namespace com
 
     /// @brief Find service handler type
     template <typename T>
-    using FindServiceHandler = std::function<void(ServiceHandleContainer<T> const &)>;
+    /// @brief 异步发现回调：句柄集合 + 本次发现句柄（SWS_CM_00303）
+    using FindServiceHandler =
+        std::function<void(ServiceHandleContainer<T> const &, FindServiceHandle)>;
 
     /// @brief Method call processing mode
     enum class MethodCallProcessingMode

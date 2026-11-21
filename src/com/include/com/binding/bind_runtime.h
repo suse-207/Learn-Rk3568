@@ -45,6 +45,11 @@ namespace com
     ///          v
     ///   Protocol Implementation (SOMEIP/DDS/DoIP/UDS/vsomeip)
     /// @endcode
+    /// @brief 绑定层发现回调：只关心句柄集合；FindServiceHandle 生命周期由 api 层管理
+    template <typename T>
+    using BindFindServiceHandler =
+        std::function<void(ServiceHandleContainer<T> const &)>;
+
     class BindRuntime
     {
     public:
@@ -99,7 +104,7 @@ namespace com
         /// @details Called when starting service discovery.
         virtual void RegisterFindServiceHandle(
             FindServiceHandle const &findHandle,
-            FindServiceHandler<std::shared_ptr<proxy::BindHandle>> const &findHandler) noexcept = 0;
+            BindFindServiceHandler<std::shared_ptr<proxy::BindHandle>> const &findHandler) noexcept = 0;
 
         /// @brief Unregister a find service handler (Proxy side)
         /// @param[in] findHandle Find service handle

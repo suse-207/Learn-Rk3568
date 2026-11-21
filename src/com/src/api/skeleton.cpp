@@ -9,6 +9,7 @@
 
 #include "com/api/runtime.h"
 #include "com/binding/bind_runtime.h"
+#include "com/binding/bind_runtime_registry.h"
 #include "com/binding/bind_skeleton.h"
 
 #include <mutex>
@@ -32,14 +33,13 @@ namespace com
                 }
                 instanceIdentifier_ = instanceIdentifier;
 
-                auto *runtime = Runtime::Get();
-                if (!runtime)
+                if (!Runtime::Get()->IsInitialized())
                 {
                     return Result<void>::FromError(ComErrc::kNotInitialized);
                 }
-                for (auto const &name : runtime->GetBindRuntimeNames())
+                for (auto const &name : binding::BindRuntimeNames())
                 {
-                    auto *bindRuntime = runtime->GetBindRuntime(name);
+                    auto *bindRuntime = binding::FindBindRuntime(name);
                     if (!bindRuntime)
                     {
                         continue;

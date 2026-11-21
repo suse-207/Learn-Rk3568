@@ -26,6 +26,7 @@
 // with id + 1000, both after 300 ms.
 
 #include <atomic>
+#include <future>
 #include <chrono>
 #include <cstdint>
 #include <iostream>
@@ -37,6 +38,7 @@
 #include <ara/core/future.h>
 
 #include "com/binding/bind_runtime_factory.h"
+#include "com/binding/bind_runtime_registry.h"
 #include "com/api/proxy.h"
 #include "com/api/runtime.h"
 #include "com/api/skeleton.h"
@@ -47,6 +49,13 @@ namespace {
 
 constexpr std::uint16_t kService = 0x6100;
 constexpr std::uint16_t kInstance = 0x0001;
+
+/// @brief 发现面回归探针：只为给 ServiceProxy<TProxy> 提供 serviceIdentifier
+struct DiscoveryProbe
+{
+    static constexpr com::ServiceIdentifier serviceIdentifier = kService;
+};
+
 constexpr std::uint16_t kMethodEcho = 0x0001;
 constexpr std::uint16_t kMethodEchoOffset = 0x0002;
 constexpr int kServerDelayMs = 300;
@@ -92,13 +101,18 @@ int RunServer() {
     auto start = std::chrono::steady_clock::now();
 
     auto *runtime = com::Runtime::Get();
-    runtime->Init();
-    auto created = com::CreateBindRuntime("vsomeip", "cc-server");
-    if (!created || !runtime->RegisterBindRuntime(std::move(created))) {
-        std::cout << "[server] init failed" << std::endl;
+    if (!runtime) {
+        std::cerr << "get runtime failed\n";
         return 1;
     }
-    auto *bindRuntime = runtime->GetBindRuntime("vsomeip");
+    // 装配并初始化绑定：应用不认识具体协议（ADR 0001 / C19）
+    auto initResult = runtime->Initialize("cc-server");
+    if (!initResult) {
+        std::cerr << "initialize runtime failed\n";
+        return 1;
+    }
+    // TODO(R2)：改用 ServiceProxy::FindService/StartFindService 后删除
+    auto *bindRuntime = com::binding::FirstBindRuntime();
     if (!bindRuntime) {
         std::cout << "[server] no bind runtime" << std::endl;
         return 1;
@@ -143,13 +157,18 @@ int RunClient() {
     auto start = std::chrono::steady_clock::now();
 
     auto *runtime = com::Runtime::Get();
-    runtime->Init();
-    auto created = com::CreateBindRuntime("vsomeip", "cc-client");
-    if (!created || !runtime->RegisterBindRuntime(std::move(created))) {
-        std::cout << "[client] init failed" << std::endl;
+    if (!runtime) {
+        std::cerr << "get runtime failed\n";
         return 1;
     }
-    auto *bindRuntime = runtime->GetBindRuntime("vsomeip");
+    // 装配并初始化绑定：应用不认识具体协议（ADR 0001 / C19）
+    auto initResult = runtime->Initialize("cc-client");
+    if (!initResult) {
+        std::cerr << "initialize runtime failed\n";
+        return 1;
+    }
+    // TODO(R2)：改用 ServiceProxy::FindService/StartFindService 后删除
+    auto *bindRuntime = com::binding::FirstBindRuntime();
     if (!bindRuntime) {
         std::cout << "[client] no bind runtime" << std::endl;
         return 1;
@@ -157,7 +176,7 @@ int RunClient() {
 
     // C2 回归：同名绑定必须被拒绝（不能静默覆盖已注册的 runtime）
     if (auto duplicate = com::CreateBindRuntime("vsomeip", "cc-client-dup")) {
-        auto duplicateResult = runtime->RegisterBindRuntime(std::move(duplicate));
+        auto duplicateResult = com::binding::AttachBindRuntime(std::move(duplicate));
         if (duplicateResult) {
             std::cout << "[client] duplicate binding accepted (BUG)" << std::endl;
             return 1;
@@ -180,17 +199,39 @@ int RunClient() {
                 // C1 回归：应用已经 start、服务已在线，发现必须事件驱动地立即就绪。
                 // 失败时打印 " FAIL "，run.sh 的计数判定会把它算成失败。
                 {
-                    com::proxy::ServiceProxy discoveryProxy(kService, kInstance);
-                    auto discoveryInit = discoveryProxy.Init();
-                    bool discoveryReady =
-                        discoveryInit &&
-                        discoveryProxy.WaitForAvailable(std::chrono::milliseconds(3000));
-                    if (discoveryReady) {
+                    // C1 回归：服务已在线时，立即发现与异步发现都必须就绪，
+                    // 且异步发现由回调驱动（用 promise 等，不轮询状态标志）。
+                    auto immediate =
+                        com::proxy::ServiceProxy<DiscoveryProbe>::FindService(kInstance);
+
+                    std::promise<void> signalled;
+                    auto signalledFuture = signalled.get_future();
+                    std::atomic<bool> fired{false};
+                    auto registration =
+                        com::proxy::ServiceProxy<DiscoveryProbe>::StartFindService(
+                            [&signalled, &fired](
+                                com::ServiceHandleContainer<com::proxy::HandleType> const &handles,
+                                com::FindServiceHandle) {
+                                if (!handles.empty() && !fired.exchange(true)) {
+                                    signalled.set_value();
+                                }
+                            });
+
+                    const bool notified =
+                        signalledFuture.wait_for(std::chrono::milliseconds(3000)) ==
+                        std::future_status::ready;
+                    const bool immediateOk = immediate && !immediate.Value().empty();
+                    if (immediateOk && notified) {
                         std::cout << "[client] discovery ready (event-driven)" << std::endl;
                     } else {
-                        std::cout << "[client] discovery FAIL ready=no" << std::endl;
+                        std::cout << "[client] discovery FAIL immediate="
+                                  << (immediateOk ? "yes" : "no")
+                                  << " notified=" << (notified ? "yes" : "no") << std::endl;
                     }
-                    discoveryProxy.Deinit();
+                    if (registration) {
+                        com::proxy::ServiceProxy<DiscoveryProbe>::StopFindService(
+                            registration.Value());
+                    }
                 }
                 for (auto const &handle : copied) {
                     if (!handle || !handle->IsValid()) {

@@ -2,19 +2,18 @@
 // Licensed under the Apache License, Version 2.0
 
 /// @file       proxy.cpp
-/// @brief      ServiceProxy 实现（pimpl）
-/// @details    发现状态、绑定句柄、回调注册全部只存在于本文件，公共头看不到它们。
+/// @brief      HandleType 与发现面实现
+/// @details    绑定向导、发现注册、在途请求全部只在本文件可见。
 
 #include "com/api/proxy.h"
 
 #include "com/api/runtime.h"
 #include "com/binding/bind_handle.h"
 #include "com/binding/bind_runtime.h"
+#include "com/binding/bind_runtime_registry.h"
 
-#include <condition_variable>
 #include <map>
 #include <mutex>
-#include <string>
 #include <utility>
 #include <vector>
 
@@ -23,258 +22,257 @@ namespace com
     namespace proxy
     {
 
-        /// @brief 发现状态：与 proxy 生命周期解耦，回调只持有 weak_ptr
-        struct DiscoveryState
-        {
-            std::mutex mutex;
-            std::condition_variable changed;
-            std::map<std::string, ServiceHandleContainer<std::shared_ptr<BindHandle>>> handles;
-            std::size_t availableBindings{0};
-            bool active{false};
+        // ------------------------------------------------------------------
+        // 句柄实现
+        // ------------------------------------------------------------------
 
-            /// @brief 重算可用绑定数并唤醒等待者（调用方必须持 mutex）
-            void RecomputeLocked() noexcept
-            {
-                std::size_t available = 0;
-                for (auto const &entry : handles)
-                {
-                    if (!entry.second.empty())
-                    {
-                        ++available;
-                    }
-                }
-                availableBindings = available;
-                changed.notify_all();
-            }
-        };
-
-        /// @brief ServiceProxy 的内部状态
-        class ServiceProxy::Impl
+        class detail::HandleImpl
         {
         public:
-            Impl(ServiceIdentifier const &serviceIdentifier,
-                 InstanceIdentifier const &instanceIdentifier,
-                 InstanceSpecifier const &specifier) noexcept
-                : serviceIdentifier_(serviceIdentifier),
-                  instanceIdentifier_(instanceIdentifier),
-                  instanceSpecifier_(specifier)
+            explicit HandleImpl(std::shared_ptr<BindHandle> handle) noexcept
+                : handle_(std::move(handle)),
+                  instance_(handle_ ? handle_->GetInstanceId() : InstanceIdentifier{0})
             {
             }
 
-            Result<void> Init() noexcept
+            std::shared_ptr<BindHandle> handle_;
+            InstanceIdentifier instance_{0};
+        };
+
+        // ------------------------------------------------------------------
+        // HandleType
+        // ------------------------------------------------------------------
+
+        HandleType::HandleType() noexcept = default;
+        HandleType::~HandleType() noexcept = default;
+        HandleType::HandleType(HandleType const &) noexcept = default;
+        HandleType &HandleType::operator=(HandleType const &) noexcept = default;
+        HandleType::HandleType(HandleType &&) noexcept = default;
+        HandleType &HandleType::operator=(HandleType &&) noexcept = default;
+
+        HandleType::HandleType(std::shared_ptr<detail::HandleImpl> impl) noexcept
+            : impl_(std::move(impl))
+        {
+        }
+
+        HandleType::operator bool() const noexcept
+        {
+            return IsValid();
+        }
+
+        bool HandleType::IsValid() const noexcept
+        {
+            return impl_ && impl_->handle_ && impl_->handle_->IsValid();
+        }
+
+        InstanceIdentifier const &HandleType::GetInstanceId() const noexcept
+        {
+            static const InstanceIdentifier kNone{0};
+            return impl_ ? impl_->instance_ : kNone;
+        }
+
+        bool HandleType::operator==(HandleType const &other) const noexcept
+        {
+            return GetInstanceId() == other.GetInstanceId();
+        }
+
+        bool HandleType::operator<(HandleType const &other) const noexcept
+        {
+            return GetInstanceId() < other.GetInstanceId();
+        }
+
+        HandleType detail::HandleAccess::Make(std::shared_ptr<HandleImpl> impl) noexcept
+        {
+            return HandleType{std::move(impl)};
+        }
+
+        std::shared_ptr<detail::HandleImpl> detail::HandleAccess::Get(HandleType const &handle) noexcept
+        {
+            return handle.impl_;
+        }
+
+        // ------------------------------------------------------------------
+        // 发现
+        // ------------------------------------------------------------------
+
+        namespace
+        {
+            /// @brief 把绑定层句柄快照转成公共句柄列表
+            ServiceHandleContainer<HandleType> Convert(
+                ServiceHandleContainer<std::shared_ptr<BindHandle>> const &bindHandles)
             {
-                std::lock_guard<std::mutex> lock(mutex_);
-                if (initialized_)
+                ServiceHandleContainer<HandleType> out;
+                out.reserve(bindHandles.size());
+                for (auto const &bindHandle : bindHandles)
                 {
-                    return Result<void>::FromValue();
+                    if (!bindHandle)
+                    {
+                        continue;
+                    }
+                    out.push_back(detail::HandleAccess::Make(
+                        std::make_shared<detail::HandleImpl>(bindHandle)));
+                }
+                return out;
+            }
+
+            /// @brief 一路异步发现的注册记录
+            struct DiscoveryRegistration
+            {
+                ServiceIdentifier serviceId{0};
+                std::vector<std::pair<std::string, FindServiceHandle>> registrations;
+            };
+
+            struct DiscoveryRegistry
+            {
+                std::mutex mutex;
+                std::map<std::uint64_t, DiscoveryRegistration> entries;
+
+                static DiscoveryRegistry &Instance()
+                {
+                    static DiscoveryRegistry registry;
+                    return registry;
+                }
+            };
+        } // namespace
+
+        namespace detail
+        {
+            Result<ServiceHandleContainer<HandleType>> FindServiceImmediate(
+                ServiceIdentifier serviceId, InstanceIdentifier const &instance) noexcept
+            {
+                if (!Runtime::Get()->IsInitialized())
+                {
+                    return Result<ServiceHandleContainer<HandleType>>::FromError(
+                        ComErrc::kNotInitialized);
                 }
 
-                auto *runtime = Runtime::Get();
-                if (!runtime)
+                ServiceHandleContainer<std::shared_ptr<BindHandle>> bindHandles;
+                for (auto const &name : binding::BindRuntimeNames())
                 {
-                    return Result<void>::FromError(ComErrc::kNotInitialized);
-                }
-
-                {
-                    std::lock_guard<std::mutex> stateLock(state_->mutex);
-                    state_->active = true;
-                }
-
-                for (auto const &name : runtime->GetBindRuntimeNames())
-                {
-                    auto *bindRuntime = runtime->GetBindRuntime(name);
+                    auto *bindRuntime = binding::FindBindRuntime(name);
                     if (!bindRuntime)
                     {
                         continue;
                     }
-
-                    // 1) 先取一次快照：服务已经在线时，不必等回调
                     ServiceHandleContainer<std::shared_ptr<BindHandle>> snapshot;
-                    bindRuntime->GetAvailableServiceHandles(
-                        serviceIdentifier_, instanceIdentifier_, snapshot);
-                    UpdateHandles(name, snapshot);
-
-                    // 2) 再注册发现回调：之后的上线/下线都走事件，不再轮询
-                    FindServiceHandle findHandle{serviceIdentifier_, instanceIdentifier_};
-                    std::weak_ptr<DiscoveryState> weakState = state_;
-                    bindRuntime->RegisterFindServiceHandle(
-                        findHandle,
-                        [weakState, name](
-                            ServiceHandleContainer<std::shared_ptr<BindHandle>> const &handles)
-                        {
-                            auto state = weakState.lock();
-                            if (!state)
-                            {
-                                return;
-                            }
-                            std::lock_guard<std::mutex> stateLock(state->mutex);
-                            if (!state->active)
-                            {
-                                return;
-                            }
-                            ServiceHandleContainer<std::shared_ptr<BindHandle>> filtered;
-                            for (auto const &handle : handles)
-                            {
-                                if (handle)
-                                {
-                                    filtered.push_back(handle);
-                                }
-                            }
-                            if (filtered.empty())
-                            {
-                                state->handles.erase(name);
-                            }
-                            else
-                            {
-                                state->handles[name] = std::move(filtered);
-                            }
-                            state->RecomputeLocked();
-                        });
-                    registrations_.emplace_back(name, findHandle);
+                    bindRuntime->GetAvailableServiceHandles(serviceId, instance, snapshot);
+                    for (auto &handle : snapshot)
+                    {
+                        bindHandles.push_back(std::move(handle));
+                    }
                 }
-
-                initialized_ = true;
-                return Result<void>::FromValue();
+                return Result<ServiceHandleContainer<HandleType>>::FromValue(Convert(bindHandles));
             }
 
-            Result<void> Deinit() noexcept
+            Result<ServiceHandleContainer<HandleType>> FindServiceImmediate(
+                ServiceIdentifier serviceId) noexcept
             {
-                std::vector<std::pair<std::string, FindServiceHandle>> registrations;
+                return FindServiceImmediate(serviceId, InstanceIdentifier{0});
+            }
+
+            Result<FindServiceHandle> StartFindServiceImpl(
+                ServiceIdentifier serviceId,
+                FindServiceHandler<HandleType> handler) noexcept
+            {
+                if (!Runtime::Get()->IsInitialized())
                 {
-                    std::lock_guard<std::mutex> lock(mutex_);
-                    if (!initialized_)
-                    {
-                        return Result<void>::FromValue();
-                    }
-                    registrations.swap(registrations_);
-                    initialized_ = false;
-                    std::lock_guard<std::mutex> stateLock(state_->mutex);
-                    state_->active = false;
-                    state_->handles.clear();
-                    state_->RecomputeLocked();
+                    return Result<FindServiceHandle>::FromError(ComErrc::kNotInitialized);
+                }
+                if (!handler)
+                {
+                    return Result<FindServiceHandle>::FromError(ComErrc::kInvalidArgument);
                 }
 
-                // 注销放在锁外：vsomeip 可能在注销时同步回调
-                if (auto *runtime = Runtime::Get())
+                const FindServiceHandle handle{serviceId, 0};
+                DiscoveryRegistration entry;
+                entry.serviceId = serviceId;
+
+                for (auto const &name : binding::BindRuntimeNames())
                 {
-                    for (auto const &entry : registrations)
+                    auto *bindRuntime = binding::FindBindRuntime(name);
+                    if (!bindRuntime)
                     {
-                        if (auto *bindRuntime = runtime->GetBindRuntime(entry.first))
+                        continue;
+                    }
+                    const FindServiceHandle perBinding{serviceId, 0};
+                    bindRuntime->RegisterFindServiceHandle(
+                        perBinding,
+                        [handler, perBinding](
+                            ServiceHandleContainer<std::shared_ptr<BindHandle>> const &bindHandles)
                         {
-                            bindRuntime->UnregisterFindServiceHandle(entry.second);
+                            handler(Convert(bindHandles), perBinding);
+                        });
+                    entry.registrations.emplace_back(name, perBinding);
+                }
+
+                {
+                    auto &registry = DiscoveryRegistry::Instance();
+                    std::lock_guard<std::mutex> lock(registry.mutex);
+                    registry.entries[handle.uid] = std::move(entry);
+                }
+                return Result<FindServiceHandle>::FromValue(handle);
+            }
+
+            void StopFindServiceImpl(FindServiceHandle const &handle) noexcept
+            {
+                DiscoveryRegistration entry;
+                {
+                    auto &registry = DiscoveryRegistry::Instance();
+                    std::lock_guard<std::mutex> lock(registry.mutex);
+                    auto it = registry.entries.find(handle.uid);
+                    if (it == registry.entries.end())
+                    {
+                        return;
+                    }
+                    entry = std::move(it->second);
+                    registry.entries.erase(it);
+                }
+                {
+                    for (auto const &registration : entry.registrations)
+                    {
+                        if (auto *bindRuntime = binding::FindBindRuntime(registration.first))
+                        {
+                            bindRuntime->UnregisterFindServiceHandle(registration.second);
                         }
                     }
                 }
-
-                return Result<void>::FromValue();
             }
 
-            bool IsAvailable() const noexcept
+            bool IsHandleValid(HandleType const &handle) noexcept
             {
-                std::lock_guard<std::mutex> stateLock(state_->mutex);
-                return state_->availableBindings > 0;
+                return handle.IsValid();
             }
 
-            bool WaitForAvailable(Duration timeout) noexcept
+            Result<Payload> SendRequestOn(
+                HandleType const &handle,
+                MethodIdentifier methodId,
+                Payload const &payload,
+                Duration timeout) noexcept
             {
-                std::unique_lock<std::mutex> stateLock(state_->mutex);
-                return state_->changed.wait_for(
-                    stateLock, timeout, [this]() { return state_->availableBindings > 0; });
-            }
-
-            InstanceSpecifier const &GetInstanceSpecifier() const noexcept
-            {
-                return instanceSpecifier_;
-            }
-
-            /// @brief 把一次句柄快照写入发现状态（Init 里的首次快照）
-            void UpdateHandles(
-                std::string const &bindName,
-                ServiceHandleContainer<std::shared_ptr<BindHandle>> const &handles) noexcept
-            {
-                std::lock_guard<std::mutex> stateLock(state_->mutex);
-                ServiceHandleContainer<std::shared_ptr<BindHandle>> filtered;
-                for (auto const &handle : handles)
+                auto impl = HandleAccess::Get(handle);
+                if (!impl || !impl->handle_)
                 {
-                    if (handle)
-                    {
-                        filtered.push_back(handle);
-                    }
+                    return Result<Payload>::FromError(ComErrc::kServiceNotAvailable);
                 }
-                if (filtered.empty())
-                {
-                    state_->handles.erase(bindName);
-                }
-                else
-                {
-                    state_->handles[bindName] = std::move(filtered);
-                }
-                state_->RecomputeLocked();
+                return impl->handle_->SendRequest(methodId, payload, timeout);
             }
 
-        private:
-            ServiceIdentifier serviceIdentifier_;
-            InstanceIdentifier instanceIdentifier_;
-            InstanceSpecifier instanceSpecifier_;
-            std::shared_ptr<DiscoveryState> state_{std::make_shared<DiscoveryState>()};
-            std::vector<std::pair<std::string, FindServiceHandle>> registrations_;
-            mutable std::mutex mutex_;
-            bool initialized_{false};
-        };
-
-        // -------------------------------------------------------------------
-        // 公共转发（行为与 pimpl 之前完全一致）
-        // -------------------------------------------------------------------
-
-        ServiceProxy::ServiceProxy(
-            ServiceIdentifier const &serviceIdentifier,
-            InstanceIdentifier const &instanceIdentifier) noexcept
-            : impl_(std::make_unique<Impl>(
-                  serviceIdentifier, instanceIdentifier, InstanceSpecifier{"unknown"}))
-        {
-        }
-
-        ServiceProxy::ServiceProxy(
-            InstanceSpecifier const &specifier,
-            ServiceIdentifier const &serviceIdentifier,
-            InstanceIdentifier const &instanceIdentifier) noexcept
-            : impl_(std::make_unique<Impl>(serviceIdentifier, instanceIdentifier, specifier))
-        {
-        }
-
-        ServiceProxy::~ServiceProxy()
-        {
-            Deinit();
-        }
-
-        Result<void> ServiceProxy::Init() noexcept
-        {
-            return impl_->Init();
-        }
-
-        Result<void> ServiceProxy::Deinit() noexcept
-        {
-            if (!impl_)
+            Future<Payload> SendRequestAsyncOn(
+                HandleType const &handle,
+                MethodIdentifier methodId,
+                Payload const &payload) noexcept
             {
-                return Result<void>::FromValue();
+                auto impl = HandleAccess::Get(handle);
+                if (!impl || !impl->handle_)
+                {
+                    auto promise = std::make_shared<ara::core::Promise<Payload>>();
+                    auto future = promise->get_future();
+                    promise->SetError(MakeErrorCode(ComErrc::kServiceNotAvailable));
+                    return future;
+                }
+                return impl->handle_->SendRequestAsync(methodId, payload);
             }
-            return impl_->Deinit();
-        }
-
-        bool ServiceProxy::IsAvailable() const noexcept
-        {
-            return impl_->IsAvailable();
-        }
-
-        bool ServiceProxy::WaitForAvailable(Duration timeout) noexcept
-        {
-            return impl_->WaitForAvailable(timeout);
-        }
-
-        InstanceSpecifier const &ServiceProxy::GetInstanceSpecifier() const noexcept
-        {
-            return impl_->GetInstanceSpecifier();
-        }
+        } // namespace detail
 
     } // namespace proxy
 } // namespace com

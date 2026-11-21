@@ -8,7 +8,7 @@
 #include <thread>
 #include <vector>
 
-#include "com/binding/bind_runtime_factory.h"
+#include "com/binding/bind_runtime_registry.h"
 #include "com/api/runtime.h"
 #include "com/api/skeleton.h"
 #include "com/binding/bind_skeleton.h"  // 绑定 SPI：P7 改用 Skeleton 公共 API 后删除
@@ -64,21 +64,19 @@ int main(int argc, char** argv) {
         manager, *slots, versions, image_path);
     vehicle_status::VehicleStatusServiceSkeleton skeleton(service);
 
-    auto* runtime = com::Runtime::Get();
-    runtime->Init();
-
-    auto createdRuntime =
-        com::CreateBindRuntime("vsomeip", "vehicle-status-service");
-    if (!createdRuntime) {
-        std::cerr << "create bind runtime failed\n";
+    auto *runtime = com::Runtime::Get();
+    if (!runtime) {
+        std::cerr << "get runtime failed\n";
         return 1;
     }
-    if (!runtime->RegisterBindRuntime(std::move(createdRuntime))) {
-        std::cerr << "register bind runtime failed\n";
+    // 装配并初始化绑定：应用不认识具体协议（ADR 0001 / C19）
+    auto initResult = runtime->Initialize("vehicle-status-service");
+    if (!initResult) {
+        std::cerr << "initialize runtime failed\n";
         return 1;
     }
-
-    auto* bindRuntime = runtime->GetBindRuntime("vsomeip");
+    // TODO(R2)：改用 ServiceProxy::FindService/StartFindService 后删除
+    auto *bindRuntime = com::binding::FirstBindRuntime();
     if (!bindRuntime) {
         std::cerr << "get bind runtime failed\n";
         return 1;

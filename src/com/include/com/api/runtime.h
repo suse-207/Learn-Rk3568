@@ -2,75 +2,53 @@
 // Licensed under the Apache License, Version 2.0
 
 /// @file       runtime.h
-/// @brief      Communication runtime - manages binding layer instances
-/// @details    Singleton that manages multiple BindRuntime implementations.
-///             P3: Added InstanceSpecifier → (serviceId, instanceId) mapping.
+/// @brief      Communication runtime (public API)
+/// @details    应用只调用 Initialize(applicationName)：绑定由 com 自己按编译期选择装配，
+///             应用代码里不再出现任何协议名。绑定层的枚举/查找属于绑定内部，
+///             见 com/binding/bind_runtime_registry.h。
+///             见 docs/adr/0001-public-api-ownership.md（C19）。
 
 #pragma once
 
 #include "com/api/types.h"
-#include "com/binding/bind_runtime.h"
-#include <memory>
-#include <vector>
 #include <string>
-#include <map>
-#include <mutex>
 
 namespace com
 {
 
     /// @brief Communication runtime singleton
-    /// @details Manages multiple binding layer runtime instances.
-    ///          Supports registering multiple protocol implementations (vsomeip, dds, etc.)
-    ///          P3: Provides InstanceSpecifier → numeric ID resolution.
+    /// @details 本类不持有成员：进程级状态在 runtime.cpp 的存储里，
+    ///          Get() 只返回一个句柄，便于在任意 TU 里使用。
     class Runtime
     {
     public:
         /// @brief Get the global runtime instance (never null)
         static Runtime *Get() noexcept;
 
-        /// @brief Initialize the runtime
-        Result<void> Init() noexcept;
+        /// @brief 装配并初始化绑定（幂等）
+        /// @param[in] applicationName 进程身份（vsomeip 需要），由应用提供
+        /// @details 绑定由 com 按编译期选择（COM_WITH_VSOMEIP）装配；失败时状态回滚。
+        Result<void> Initialize(std::string const &applicationName) noexcept;
 
-        /// @brief Deinitialize the runtime
+        /// @brief 反初始化全部绑定
         Result<void> Deinit() noexcept;
 
-        /// @brief Start all registered bind runtimes (blocking)
+        /// @brief 启动全部绑定（阻塞）
         void Start() noexcept;
 
-        /// @brief Stop all registered bind runtimes
+        /// @brief 停止全部绑定（可从其它线程调用来打断 Start）
         void Stop() noexcept;
 
-        /// @brief Binding runtime unique pointer type
-        using BindRuntimePtr = std::unique_ptr<BindRuntime>;
-
-        /// @brief Register a binding layer runtime instance
-        // 注册前会先调用 bindRuntime->Init()，只有 Init() 成功后才把该 runtime 放入内部映射。
-        // 因此 Init() 失败即注册失败：错误码原样返回，runtime 不会进入映射，也不会被后续查找命中。
-        // 调用方须先确保依赖已就绪（例如 vsomeip 运行时、应用名等），否则 Init() 会失败。
-        // 调用方须检查返回值，不要假定注册一定成功。
-        Result<void> RegisterBindRuntime(std::unique_ptr<BindRuntime> bindRuntime) noexcept;
-
-        /// @brief Unregister a binding layer runtime by name
-        Result<void> UnregisterBindRuntime(std::string const &name) noexcept;
-
-        /// @brief Get a binding layer runtime by name
-        /// @return Pointer into the runtime, valid until the next registration change.
-        BindRuntime *GetBindRuntime(std::string const &name) noexcept;
-
-        /// @brief Get all registered bind runtime names
-        std::vector<std::string> GetBindRuntimeNames() const noexcept;
+        /// @brief 是否已 Initialize
+        bool IsInitialized() const noexcept;
 
         // -- P3: InstanceSpecifier → (serviceId, instanceId) mapping --
 
-        /// @brief Register a mapping from InstanceSpecifier to numeric IDs
         void RegisterServiceMapping(
             InstanceSpecifier const &specifier,
             ServiceIdentifier serviceId,
             InstanceIdentifier instanceId) noexcept;
 
-        /// @brief Resolve an InstanceSpecifier to numeric IDs
-        /// @return true if found, false otherwise
         bool ResolveServiceMapping(
             InstanceSpecifier const &specifier,
             ServiceIdentifier &serviceId,
@@ -82,18 +60,6 @@ namespace com
 
         Runtime(Runtime const &) = delete;
         Runtime &operator=(Runtime const &) = delete;
-
-        mutable std::mutex mutex_;
-        bool initialized_{false};
-        std::map<std::string, std::unique_ptr<BindRuntime>> bindRuntimes_;
-
-        // P3: InstanceSpecifier → (serviceId, instanceId) mapping
-        struct ServiceMapping
-        {
-            ServiceIdentifier serviceId;
-            InstanceIdentifier instanceId;
-        };
-        std::map<std::string, ServiceMapping> serviceMappings_;
     };
 
 } // namespace com

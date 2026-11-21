@@ -55,6 +55,9 @@ namespace com
             /// @brief Get the binding runtime name
             virtual char const *GetBindRuntimeName() const noexcept = 0;
 
+            /// @brief Instance identifier of this handle (SWS_CM_00312 HandleType)
+            virtual InstanceIdentifier GetInstanceId() const noexcept = 0;
+
             /// @brief 提交一个请求：绑定层只负责登记与发送，不关心超时
             virtual Submission Submit(
                 MethodIdentifier methodId,

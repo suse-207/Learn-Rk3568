@@ -7,7 +7,7 @@
 set -uo pipefail
 
 DIR="${1:?usage: check_api_headers.sh <com/api directory>}"
-ALLOW="runtime.h"
+ALLOW=""
 FORBIDDEN='BindHandle|BindSkeleton|IBinding|binding/|vsomeip'
 fail=0
 

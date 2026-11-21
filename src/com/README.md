@@ -228,70 +228,16 @@ VsomeipBindHandle
 
 ```cpp
 #include "com/api/runtime.h"
-#include "com/binding/bind_runtime_factory.h"
+#include "com/binding/bind_runtime_registry.h"
 #include "com/api/skeleton.h"
 
 int main() {
     auto *runtime = com::Runtime::Get();
-    runtime->Init();
-
-    auto createdRuntime = com::CreateBindRuntime("vsomeip", "echo_service");
-    if (!createdRuntime) {
+    if (!runtime->Initialize("echo_client")) {      // 装配 + 初始化，应用不认识协议
         return 1;
     }
-
-    if (!runtime->RegisterBindRuntime(std::move(createdRuntime))) {
-        return 1;
-    }
-
-    auto *bindRuntime = runtime->GetBindRuntime("vsomeip");
-
-    com::skeleton::ServiceSkeleton skeleton(0x1234, 1);
-    std::vector<std::unique_ptr<com::skeleton::BindSkeleton>> bindSkeletons;
-    bindRuntime->CreateBindSkeleton(skeleton, 1, bindSkeletons);
-
-    for (auto &bs : bindSkeletons) {
-        bs->RegisterMethodHandler(0x0001,
-            [](const std::vector<uint8_t>& request,
-               std::vector<uint8_t>& response) {
-                response = request;
-            });
-        bs->Offer();
-    }
-
-    runtime->Start();
-
-    for (auto &bs : bindSkeletons) {
-        bs->StopOffer();
-    }
-
-    runtime->Stop();
-    runtime->Deinit();
-    return 0;
-}
-```
-
-### 客户端
-
-```cpp
-#include "com/api/runtime.h"
-#include "com/binding/bind_runtime_factory.h"
-#include "com/api/proxy.h"
-
-int main() {
-    auto *runtime = com::Runtime::Get();
-    runtime->Init();
-
-    auto createdRuntime = com::CreateBindRuntime("vsomeip", "echo_client");
-    if (!createdRuntime) {
-        return 1;
-    }
-
-    if (!runtime->RegisterBindRuntime(std::move(createdRuntime))) {
-        return 1;
-    }
-
-    auto *bindRuntime = runtime->GetBindRuntime("vsomeip");
+    // 绑定层示例：取第一个已装配的绑定（业务层应改用 ServiceProxy）
+    auto *bindRuntime = com::binding::FirstBindRuntime();
 
     com::FindServiceHandle findHandle{0x1234, 1};
     bindRuntime->RegisterFindServiceHandle(findHandle,

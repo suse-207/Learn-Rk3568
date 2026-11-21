@@ -8,7 +8,7 @@
 
 #include "com/api/proxy.h"
 #include "com/api/runtime.h"
-#include "com/binding/bind_runtime_factory.h"
+#include "com/binding/bind_runtime_registry.h"
 #include "com/binding/bind_handle.h"  // TODO(P4b/P5): 迁移到 ServiceProxy 后删除
 
 #include "ota/http_downloader.h"
@@ -54,19 +54,20 @@ int main(int argc, char** argv) {
     std::cout << "downloaded " << payload.size() << " bytes, package "
               << package.size() << " bytes\n";
 
-    // 3. Register vsomeip + find the UCM service.
-    auto* runtime = com::Runtime::Get();
-    runtime->Init();
-    auto createdRuntime = com::CreateBindRuntime("vsomeip", "ucm-client");
-    if (!createdRuntime) {
-        std::cerr << "create vsomeip bind runtime failed\n";
+    // 3. 装配并初始化绑定，然后发现 UCM 服务。
+    auto *runtime = com::Runtime::Get();
+    if (!runtime) {
+        std::cerr << "get runtime failed\n";
         return 1;
     }
-    if (!runtime->RegisterBindRuntime(std::move(createdRuntime))) {
-        std::cerr << "register bind runtime failed\n";
+    // 装配并初始化绑定：应用不认识具体协议（ADR 0001 / C19）
+    auto initResult = runtime->Initialize("ucm-client");
+    if (!initResult) {
+        std::cerr << "initialize runtime failed\n";
         return 1;
     }
-    auto* bindRuntime = runtime->GetBindRuntime("vsomeip");
+    // TODO(R2)：改用 ServiceProxy::FindService/StartFindService 后删除
+    auto *bindRuntime = com::binding::FirstBindRuntime();
 
     com::FindServiceHandle findHandle{kServiceId, kInstanceId};
     bindRuntime->RegisterFindServiceHandle(findHandle,

@@ -5,7 +5,7 @@
 /// @brief      SOME/IP Client using decoupled communication layer
 
 #include "com/api/runtime.h"
-#include "com/binding/bind_runtime_factory.h"
+#include "com/binding/bind_runtime_registry.h"
 #include "com/api/proxy.h"
 #include "com/binding/bind_handle.h"  // TODO(P4b/P5): 迁移到 ServiceProxy 后删除
 
@@ -42,41 +42,22 @@ int main()
 
     // Get runtime instance
     auto *runtime = com::Runtime::Get();
-    if (!runtime)
-    {
-        std::cerr << "Failed to get runtime\n";
+    if (!runtime) {
+        std::cerr << "get runtime failed\n";
         return 1;
     }
     g_runtime = runtime;
-
-    // Initialize runtime
-    auto initResult = runtime->Init();
-    if (!initResult)
-    {
-        std::cerr << "Failed to initialize runtime\n";
+    // 装配并初始化绑定：应用不认识具体协议（ADR 0001 / C19）
+    auto initResult = runtime->Initialize("someip-client");
+    if (!initResult) {
+        std::cerr << "initialize runtime failed\n";
         return 1;
     }
-
-    // Create and register vsomeip bind runtime
-    auto createdRuntime = com::CreateBindRuntime("vsomeip", "someip-client");
-    if (!createdRuntime)
-    {
-        std::cerr << "Failed to create vsomeip bind runtime\n";
-        return 1;
-    }
-
-    auto registerResult = runtime->RegisterBindRuntime(std::move(createdRuntime));
-    if (!registerResult)
-    {
-        std::cerr << "Failed to register vsomeip runtime\n";
-        return 1;
-    }
-
-    // Get the vsomeip bind runtime
-    auto *bindRuntime = runtime->GetBindRuntime("vsomeip");
+    // TODO(R2)：改用 ServiceProxy::FindService/StartFindService 后删除
+    auto *bindRuntime = com::binding::FirstBindRuntime();
     if (!bindRuntime)
     {
-        std::cerr << "Failed to get vsomeip runtime\n";
+        std::cerr << "Failed to get bind runtime\n";
         return 1;
     }
 

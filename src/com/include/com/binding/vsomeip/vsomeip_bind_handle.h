@@ -76,7 +76,7 @@ namespace com
             ServiceIdentifier GetServiceId() const noexcept { return serviceId_; }
 
             /// @brief Get instance identifier
-            InstanceIdentifier GetInstanceId() const noexcept { return instanceId_; }
+            InstanceIdentifier GetInstanceId() const noexcept override { return instanceId_; }
 
         private:
             std::shared_ptr<vsomeip_v3::application> vsomeipApp_;

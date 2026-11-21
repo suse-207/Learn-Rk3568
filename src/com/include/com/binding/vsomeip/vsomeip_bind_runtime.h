@@ -61,7 +61,7 @@ namespace com
 
             void RegisterFindServiceHandle(
                 FindServiceHandle const &findHandle,
-                FindServiceHandler<std::shared_ptr<proxy::BindHandle>> const &findHandler) noexcept override;
+                BindFindServiceHandler<std::shared_ptr<proxy::BindHandle>> const &findHandler) noexcept override;
 
             void UnregisterFindServiceHandle(FindServiceHandle const &findHandle) noexcept override;
 

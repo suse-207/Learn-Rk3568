@@ -208,7 +208,7 @@ namespace com
 
         void VsomeipBindRuntime::RegisterFindServiceHandle(
             FindServiceHandle const &findHandle,
-            FindServiceHandler<std::shared_ptr<proxy::BindHandle>> const &findHandler) noexcept
+            BindFindServiceHandler<std::shared_ptr<proxy::BindHandle>> const &findHandler) noexcept
         {
             // Request the service first; vsomeip only notifies availability
             // handlers for services the client has requested.

@@ -46,39 +46,18 @@ int main(int argc, char *argv[])
 
     // Get the runtime instance
     auto *runtime = com::Runtime::Get();
-    if (!runtime)
-    {
-        std::cerr << "Failed to get runtime" << std::endl;
+    if (!runtime) {
+        std::cerr << "get runtime failed\n";
         return 1;
     }
-
-    // Initialize runtime
-    auto initResult = runtime->Init();
-    if (!initResult)
-    {
-        std::cerr << "Failed to initialize runtime" << std::endl;
+    // 装配并初始化绑定：应用不认识具体协议（ADR 0001 / C19）
+    auto initResult = runtime->Initialize("com-service-example");
+    if (!initResult) {
+        std::cerr << "initialize runtime failed\n";
         return 1;
     }
-
-    // Create vsomeip bind runtime
-    auto vsomeipRuntime = std::make_unique<com::vsomeip_binding::VsomeipBindRuntime>("example_service");
-    auto vsomeipInitResult = vsomeipRuntime->Init();
-    if (!vsomeipInitResult)
-    {
-        std::cerr << "Failed to initialize vsomeip runtime" << std::endl;
-        return 1;
-    }
-
-    // Register vsomeip bind runtime
-    auto registerResult = runtime->RegisterBindRuntime(std::move(vsomeipRuntime));
-    if (!registerResult)
-    {
-        std::cerr << "Failed to register vsomeip runtime" << std::endl;
-        return 1;
-    }
-
-    // Get the vsomeip bind runtime
-    auto *bindRuntime = runtime->GetBindRuntime("vsomeip");
+    // TODO(R2)：改用 ServiceProxy::FindService/StartFindService 后删除
+    auto *bindRuntime = com::binding::FirstBindRuntime();
     if (!bindRuntime)
     {
         std::cerr << "Failed to get vsomeip runtime" << std::endl;
