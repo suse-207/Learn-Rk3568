@@ -43,6 +43,19 @@ add_subdirectory(apps)
 # compares it byte-for-byte against the frozen hand-written implementation in tests/idlc/legacy.
 include(CTest)
 if(BUILD_TESTING AND UNIX)
+
+    # 公共 API 头卫生守卫（ADR 0001 C2/C18）：
+    #   api_headers_compile —— 只包含 com/api/** 的 TU 必须能编译
+    #   api_headers_no_leak —— com/api/** 不得出现绑定类型（runtime.h 暂列白名单，P5 收口）
+    add_executable(api_headers_test tests/api_headers/main.cpp)
+    target_link_libraries(api_headers_test PRIVATE com)
+    add_test(NAME api_headers_compile COMMAND api_headers_test)
+    add_test(
+        NAME api_headers_no_leak
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/api_headers/check_api_headers.sh
+                ${CMAKE_CURRENT_SOURCE_DIR}/src/com/include/com/api
+    )
+    set_tests_properties(api_headers_no_leak PROPERTIES TIMEOUT 60)
     add_test(
         NAME idlc_byte_compare
         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/idlc/run.sh

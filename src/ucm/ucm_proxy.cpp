@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "com/api/proxy.h"
+#include "com/binding/bind_handle.h"  // TODO(P4b/P5): 迁移到 ServiceProxy 后删除
 #include "ucm/ucm_protocol.h"
 
 namespace ucm {

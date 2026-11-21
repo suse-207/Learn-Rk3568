@@ -40,6 +40,8 @@
 #include "com/api/proxy.h"
 #include "com/api/runtime.h"
 #include "com/api/skeleton.h"
+#include "com/binding/bind_handle.h"  // TODO(P4b/P5): 迁移到 ServiceProxy 后删除
+#include "com/binding/bind_skeleton.h"  // 绑定 SPI：P7 改用 Skeleton 公共 API 后删除
 
 namespace {
 

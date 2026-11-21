@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Regression test for concurrent same-method requests in the vsomeip binding.
 #
+# 注意：本脚本手动列出 com 的源文件（不链接 CMake 的 libcom）。
+# src/com/src/** 新增 .cpp 时必须同步加到这里，否则链接期才报未定义引用。
 # Usage: ./run.sh                    # build into ./build and check every scenario
 #        VSOMEIP_PREFIX=... ./run.sh
 #        TSAN=1 ./run.sh             # build/run under ThreadSanitizer (并发改动必须过这一档)
@@ -51,6 +53,8 @@ echo "== building (vsomeip prefix: $PREFIX)"
     -o "$BUILD/com_concurrency_test" \
     "$DIR/main.cpp" \
     "$ROOT/src/com/src/api/runtime.cpp" \
+    "$ROOT/src/com/src/api/proxy.cpp" \
+    "$ROOT/src/com/src/api/skeleton.cpp" \
     "$ROOT/src/com/src/binding/bind_runtime_factory.cpp" \
     "$ROOT/src/com/src/binding/vsomeip/vsomeip_bind_runtime.cpp" \
     "$ROOT/src/com/src/binding/vsomeip/vsomeip_bind_handle.cpp" \

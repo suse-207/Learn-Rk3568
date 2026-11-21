@@ -5,6 +5,7 @@
 #include <set>
 
 #include "com/api/skeleton.h"
+#include "com/binding/bind_skeleton.h"  // TODO(P7): 改用 Skeleton 公共 API 后删除
 
 namespace vehicle_status {
 

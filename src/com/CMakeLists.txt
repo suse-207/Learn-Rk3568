@@ -18,6 +18,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Source files
 set(COM_SOURCES
     src/api/runtime.cpp
+    src/api/proxy.cpp
+    src/api/skeleton.cpp
     src/binding/bind_runtime_factory.cpp
 )
 

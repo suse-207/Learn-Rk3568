@@ -7,6 +7,7 @@
 #include "com/api/runtime.h"
 #include "com/binding/bind_runtime_factory.h"
 #include "com/api/proxy.h"
+#include "com/binding/bind_handle.h"  // TODO(P4b/P5): 迁移到 ServiceProxy 后删除
 
 #include <atomic>
 #include <chrono>

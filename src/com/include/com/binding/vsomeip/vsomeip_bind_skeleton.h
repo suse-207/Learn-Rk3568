@@ -8,6 +8,7 @@
 #pragma once
 
 #include "com/api/skeleton.h"
+#include "com/binding/bind_skeleton.h"
 #include <vsomeip/application.hpp>
 #include <vsomeip/runtime.hpp>
 #include <memory>

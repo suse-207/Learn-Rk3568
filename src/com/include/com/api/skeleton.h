@@ -3,19 +3,15 @@
 
 /// @file       skeleton.h
 /// @brief      Skeleton layer - server side service implementation (public API)
-/// @details    Contains Skeleton and ServiceSkeleton。绑定类型不属于本头；
-///             TODO(P7)：bindSkeletons_ 换成不透明接口后删除 binding/bind_skeleton.h。
-///             见 docs/adr/0001-public-api-ownership.md（C2/C13）。
+/// @details    只有声明；绑定骨架集合与生命周期在 src/com/src/api/skeleton.cpp（pimpl）。
+///             本头不包含、也不前置声明任何绑定类型；原 GetBindSkeletons() 已删除
+///             （零调用，且它把 BindSkeleton 暴露到公共 API）。
+///             见 docs/adr/0001-public-api-ownership.md（C2/C13/C14）。
 
 #pragma once
 
 #include "com/api/types.h"
-#include "com/api/runtime.h"
-#include "com/binding/bind_skeleton.h"  // TODO(P7): 不透明化后移除
-#include <functional>
 #include <memory>
-#include <mutex>
-#include <vector>
 
 namespace com
 {
@@ -24,103 +20,41 @@ namespace com
 
         /// @brief Skeleton base class
         /// @details Base class for service skeleton implementations.
-        ///          Manages multiple BindSkeleton instances for multi-protocol support.
+        ///          Manages the per-binding skeletons internally; they are not exposed.
         class Skeleton
         {
         public:
-            Skeleton() noexcept = default;
-            virtual ~Skeleton() noexcept = default;
+            Skeleton() noexcept;
+
+            /// @brief 析构时自动 Deinit（释放各绑定的骨架）
+            virtual ~Skeleton();
 
             Skeleton(Skeleton const &) = delete;
             Skeleton &operator=(Skeleton const &) = delete;
+            Skeleton(Skeleton &&) = delete;
+            Skeleton &operator=(Skeleton &&) = delete;
 
-            ServiceIdentifier const &GetServiceIdentifier() const noexcept
-            {
-                return serviceIdentifier_;
-            }
+            ServiceIdentifier const &GetServiceIdentifier() const noexcept;
 
-            void SetServiceIdentifier(ServiceIdentifier serviceIdentifier) noexcept
-            {
-                serviceIdentifier_ = serviceIdentifier;
-            }
+            /// @brief 为所有已注册绑定创建骨架；幂等
+            Result<void> Init(InstanceIdentifier const &instanceIdentifier) noexcept;
 
-            Result<void> Init(InstanceIdentifier const &instanceIdentifier) noexcept
-            {
-                std::lock_guard<std::mutex> lock(mutex_);
-                if (initialized_)
-                {
-                    return Result<void>::FromValue();
-                }
-                instanceIdentifier_ = instanceIdentifier;
-                auto *runtime = Runtime::Get();
-                if (!runtime)
-                {
-                    return Result<void>::FromError(ComErrc::kNotInitialized);
-                }
-                for (auto const &name : runtime->GetBindRuntimeNames())
-                {
-                    auto *bindRuntime = runtime->GetBindRuntime(name);
-                    if (bindRuntime)
-                    {
-                        std::vector<std::unique_ptr<BindSkeleton>> newBindSkeletons;
-                        bindRuntime->CreateBindSkeleton(*this, instanceIdentifier_, newBindSkeletons);
-                        for (auto &bs : newBindSkeletons)
-                        {
-                            bindSkeletons_.push_back(std::move(bs));
-                        }
-                    }
-                }
-                initialized_ = true;
-                return Result<void>::FromValue();
-            }
+            /// @brief 销毁各绑定的骨架；幂等
+            Result<void> Deinit() noexcept;
 
-            Result<void> Deinit() noexcept
-            {
-                std::lock_guard<std::mutex> lock(mutex_);
-                for (auto &bs : bindSkeletons_)
-                {
-                    if (bs) { bs->Deinit(); }
-                }
-                bindSkeletons_.clear();
-                initialized_ = false;
-                return Result<void>::FromValue();
-            }
+            /// @brief 向所有绑定 Offer 服务
+            Result<void> Offer() noexcept;
 
-            Result<void> Offer() noexcept
-            {
-                std::lock_guard<std::mutex> lock(mutex_);
-                for (auto &bs : bindSkeletons_)
-                {
-                    if (bs)
-                    {
-                        auto result = bs->Offer();
-                        if (!result) { return result; }
-                    }
-                }
-                return Result<void>::FromValue();
-            }
-
-            Result<void> StopOffer() noexcept
-            {
-                std::lock_guard<std::mutex> lock(mutex_);
-                for (auto &bs : bindSkeletons_)
-                {
-                    if (bs) { bs->StopOffer(); }
-                }
-                return Result<void>::FromValue();
-            }
-
-            std::vector<std::unique_ptr<BindSkeleton>> &GetBindSkeletons() noexcept
-            {
-                return bindSkeletons_;
-            }
+            /// @brief 向所有绑定 StopOffer 服务
+            Result<void> StopOffer() noexcept;
 
         protected:
-            ServiceIdentifier serviceIdentifier_{0};
-            InstanceIdentifier instanceIdentifier_;
-            std::vector<std::unique_ptr<BindSkeleton>> bindSkeletons_;
-            mutable std::mutex mutex_;
-            bool initialized_{false};
+            void SetServiceIdentifier(ServiceIdentifier serviceIdentifier) noexcept;
+            void SetInstanceIdentifier(InstanceIdentifier instanceIdentifier) noexcept;
+
+        private:
+            class Impl;
+            std::unique_ptr<Impl> impl_;
         };
 
         /// @brief Service skeleton base class
@@ -135,7 +69,7 @@ namespace com
                 : instanceSpecifier_{"unknown"}
             {
                 SetServiceIdentifier(serviceIdentifier);
-                instanceIdentifier_ = instanceIdentifier;
+                SetInstanceIdentifier(instanceIdentifier);
             }
 
             /// @brief Constructor with InstanceSpecifier (P3)
@@ -145,7 +79,7 @@ namespace com
                 : instanceSpecifier_(specifier)
             {
                 SetServiceIdentifier(serviceIdentifier);
-                instanceIdentifier_ = instanceIdentifier;
+                SetInstanceIdentifier(instanceIdentifier);
             }
 
             ~ServiceSkeleton() override = default;

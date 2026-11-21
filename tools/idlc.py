@@ -536,7 +536,8 @@ def emit_proxy_h(contract):
 def emit_proxy_cpp(contract):
     pkg = contract.package
     L = [banner(contract), '#include "%s/%s_proxy.h"' % (pkg, pkg), "", "#include <chrono>", "",
-         '#include "com/proxy.h"', "", "namespace %s {" % pkg, "",
+         '#include "com/api/proxy.h"',
+         '#include "com/binding/bind_handle.h"  // TODO(P4b): 改用 ServiceProxy 后删除', "", "namespace %s {" % pkg, "",
          "%sProxy::%sProxy(com::proxy::BindHandle& handle)" % (contract.service, contract.service),
          "    : handle_(handle) {}", ""]
     for m in contract.methods:
@@ -613,7 +614,10 @@ def emit_skeleton_cpp(contract):
         includes.insert(0, "#include <iostream>")
     L = [banner(contract), '#include "%s/%s_service_skeleton.h"' % (pkg, pkg), ""]
     L.extend(includes)
-    L.extend(["", '#include "com/skeleton.h"', "", "namespace %s {" % pkg, ""])
+    L.extend(["",
+              '#include "com/api/skeleton.h"',
+              '#include "com/binding/bind_skeleton.h"  // TODO(P7): 改用 Skeleton 公共 API 后删除',
+              "", "namespace %s {" % pkg, ""])
     if contract.logging:
         L.extend([
             "namespace {", "",

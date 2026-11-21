@@ -11,6 +11,7 @@
 #include "com/binding/bind_runtime_factory.h"
 #include "com/api/runtime.h"
 #include "com/api/skeleton.h"
+#include "com/binding/bind_skeleton.h"  // 绑定 SPI：P7 改用 Skeleton 公共 API 后删除
 
 #include "ota/boot_controller.h"
 #include "ota/linuxab_boot_controller.h"

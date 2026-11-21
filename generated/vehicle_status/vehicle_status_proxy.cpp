@@ -4,6 +4,7 @@
 #include <chrono>
 
 #include "com/api/proxy.h"
+#include "com/binding/bind_handle.h"  // TODO(P4b): 改用 ServiceProxy 后删除
 
 namespace vehicle_status {
 

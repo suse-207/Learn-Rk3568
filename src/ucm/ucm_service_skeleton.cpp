@@ -6,6 +6,7 @@
 
 #include "com/api/skeleton.h"
 #include "ucm/ucm_protocol.h"
+#include "com/binding/bind_skeleton.h"  // 绑定 SPI：P7 改用 Skeleton 公共 API 后删除
 
 namespace ucm {
 

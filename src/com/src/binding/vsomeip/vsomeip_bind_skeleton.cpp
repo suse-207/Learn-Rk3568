@@ -5,6 +5,7 @@
 /// @brief      vsomeip binding skeleton implementation
 
 #include "com/binding/vsomeip/vsomeip_bind_skeleton.h"
+#include "com/binding/bind_skeleton.h"  // 绑定 SPI：P7 改用 Skeleton 公共 API 后删除
 #include <vsomeip/message.hpp>
 #include <vsomeip/payload.hpp>
 
