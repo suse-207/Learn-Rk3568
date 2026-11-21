@@ -17,34 +17,34 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Source files
 set(COM_SOURCES
-    src/runtime.cpp
-    src/bind_runtime_factory.cpp
+    src/api/runtime.cpp
+    src/binding/bind_runtime_factory.cpp
 )
 
 # Header files
 set(COM_HEADERS
-    include/com/types.h
-    include/com/com_error_domain.h
-    include/com/bind_runtime.h
-    include/com/bind_runtime_factory.h
-    include/com/runtime.h
-    include/com/proxy.h
-    include/com/skeleton.h
+    include/com/api/types.h
+    include/com/api/com_error_domain.h
+    include/com/binding/bind_runtime.h
+    include/com/binding/bind_runtime_factory.h
+    include/com/api/runtime.h
+    include/com/api/proxy.h
+    include/com/api/skeleton.h
 )
 
 # vsomeip binding sources
 if(COM_WITH_VSOMEIP)
     list(APPEND COM_SOURCES
-        src/vsomeip/vsomeip_bind_runtime.cpp
-        src/vsomeip/vsomeip_bind_handle.cpp
-        src/vsomeip/vsomeip_bind_skeleton.cpp
-        src/vsomeip/vsomeip_request_dispatcher.cpp
+        src/binding/vsomeip/vsomeip_bind_runtime.cpp
+        src/binding/vsomeip/vsomeip_bind_handle.cpp
+        src/binding/vsomeip/vsomeip_bind_skeleton.cpp
+        src/binding/vsomeip/vsomeip_request_dispatcher.cpp
     )
     list(APPEND COM_HEADERS
-        include/com/vsomeip/vsomeip_bind_runtime.h
-        include/com/vsomeip/vsomeip_bind_handle.h
-        include/com/vsomeip/vsomeip_bind_skeleton.h
-        include/com/vsomeip/vsomeip_request_dispatcher.h
+        include/com/binding/vsomeip/vsomeip_bind_runtime.h
+        include/com/binding/vsomeip/vsomeip_bind_handle.h
+        include/com/binding/vsomeip/vsomeip_bind_skeleton.h
+        include/com/binding/vsomeip/vsomeip_request_dispatcher.h
     )
 endif()
 

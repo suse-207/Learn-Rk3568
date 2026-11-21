@@ -6,9 +6,9 @@
 #include <thread>
 #include <vector>
 
-#include "com/proxy.h"
-#include "com/runtime.h"
-#include "com/bind_runtime_factory.h"
+#include "com/api/proxy.h"
+#include "com/api/runtime.h"
+#include "com/binding/bind_runtime_factory.h"
 
 #include "ota/http_downloader.h"
 #include "ota/package_manifest.h"

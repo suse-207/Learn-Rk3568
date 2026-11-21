@@ -1,7 +1,7 @@
-#include "com/bind_runtime_factory.h"
+#include "com/binding/bind_runtime_factory.h"
 
 #ifdef COM_WITH_VSOMEIP
-#include "com/vsomeip/vsomeip_bind_runtime.h"
+#include "com/binding/vsomeip/vsomeip_bind_runtime.h"
 #endif
 
 namespace com {

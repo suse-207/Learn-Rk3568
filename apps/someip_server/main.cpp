@@ -4,9 +4,9 @@
 /// @file       main.cpp
 /// @brief      SOME/IP Server using decoupled communication layer
 
-#include "com/runtime.h"
-#include "com/bind_runtime_factory.h"
-#include "com/skeleton.h"
+#include "com/api/runtime.h"
+#include "com/binding/bind_runtime_factory.h"
+#include "com/api/skeleton.h"
 
 #include <csignal>
 #include <chrono>

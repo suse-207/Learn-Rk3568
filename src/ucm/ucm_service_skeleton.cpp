@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#include "com/skeleton.h"
+#include "com/api/skeleton.h"
 #include "ucm/ucm_protocol.h"
 
 namespace ucm {

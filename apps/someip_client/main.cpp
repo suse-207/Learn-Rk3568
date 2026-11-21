@@ -4,9 +4,9 @@
 /// @file       main.cpp
 /// @brief      SOME/IP Client using decoupled communication layer
 
-#include "com/runtime.h"
-#include "com/bind_runtime_factory.h"
-#include "com/proxy.h"
+#include "com/api/runtime.h"
+#include "com/binding/bind_runtime_factory.h"
+#include "com/api/proxy.h"
 
 #include <atomic>
 #include <chrono>

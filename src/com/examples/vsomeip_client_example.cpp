@@ -5,9 +5,9 @@
 /// @brief      Example demonstrating how to use the decoupled communication layer
 ///             with vsomeip binding to create a SOME/IP client
 
-#include "com/runtime.h"
-#include "com/vsomeip/vsomeip_bind_runtime.h"
-#include "com/proxy.h"
+#include "com/api/runtime.h"
+#include "com/binding/vsomeip/vsomeip_bind_runtime.h"
+#include "com/api/proxy.h"
 #include <iostream>
 #include <thread>
 #include <chrono>

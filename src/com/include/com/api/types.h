@@ -1,0 +1,119 @@
+// Copyright 2024
+// Licensed under the Apache License, Version 2.0
+
+/// @file       types.h
+/// @brief      Communication types definition
+/// @details    Common types used across the communication stack.
+///             P0: Result now uses ara::core::ErrorCode instead of std::string.
+///             P3: InstanceSpecifier alias added.
+
+#pragma once
+
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
+#include <map>
+#include <set>
+#include <functional>
+#include <mutex>
+#include <atomic>
+#include <chrono>
+
+#include "ara/core/error_code.h"
+#include "ara/core/result.h"
+#include "ara/core/instance_specifier.h"
+#include "ara/core/future.h"
+#include "ara/core/promise.h"
+#include "com/api/com_error_domain.h"
+
+namespace com
+{
+
+    /// @brief Service identifier type
+    using ServiceIdentifier = uint16_t;
+
+    /// @brief Instance identifier type
+    using InstanceIdentifier = uint16_t;
+
+    /// @brief Method identifier type
+    using MethodIdentifier = uint16_t;
+
+    /// @brief Event identifier type
+    using EventIdentifier = uint16_t;
+
+    /// @brief Event group identifier type
+    using EventGroupIdentifier = uint16_t;
+
+    /// @brief Field identifier type
+    using FieldIdentifier = uint16_t;
+
+    /// @brief Event type: plain event or field (getter/setter/notifier)
+    enum class EventType : uint8_t
+    {
+        kEvent = 0x00,
+        kField = 0x02,
+    };
+
+    /// @brief Instance identifier container type
+    using InstanceIdentifierContainer = std::vector<InstanceIdentifier>;
+
+    /// @brief InstanceSpecifier (P3: AUTOSAR-style service identification)
+    using InstanceSpecifier = ara::core::InstanceSpecifier;
+
+    /// @brief Future type for async operations (P2: ara::com-style async)
+    /// @tparam T Value type
+    template <typename T>
+    using Future = ara::core::Future<T>;
+
+    /// @brief Promise type for async operations (P2: ara::com-style async)
+    /// @tparam T Value type
+    template <typename T>
+    using Promise = ara::core::Promise<T>;
+
+    /// @brief Duration type for timeouts
+    using Duration = std::chrono::milliseconds;
+
+    /// @brief Service handle container type
+    template <typename T>
+    using ServiceHandleContainer = std::vector<T>;
+
+    /// @brief Find service handle type
+    struct FindServiceHandle
+    {
+        ServiceIdentifier serviceIdentifier;
+        InstanceIdentifier instanceIdentifier;
+        uint64_t uid;
+
+        FindServiceHandle() : serviceIdentifier(0), instanceIdentifier(0), uid(GenerateUID()) {}
+        FindServiceHandle(ServiceIdentifier svc, InstanceIdentifier inst)
+            : serviceIdentifier(svc), instanceIdentifier(inst), uid(GenerateUID()) {}
+
+        static uint64_t GenerateUID()
+        {
+            static std::atomic<uint64_t> counter{0};
+            return ++counter;
+        }
+    };
+
+    /// @brief Find service handler type
+    template <typename T>
+    using FindServiceHandler = std::function<void(ServiceHandleContainer<T> const &)>;
+
+    /// @brief Method call processing mode
+    enum class MethodCallProcessingMode
+    {
+        kEvent,   ///< Event-driven mode
+        kParallel ///< Parallel mode
+    };
+
+    // -----------------------------------------------------------------------
+    // Result type (P0: alias to ara::core::Result<T, ErrorCode>)
+    // -----------------------------------------------------------------------
+
+    /// @brief Result type for error handling
+    /// @tparam T Value type
+    template <typename T>
+    using Result = ara::core::Result<T, ara::core::ErrorCode>;
+
+} // namespace com

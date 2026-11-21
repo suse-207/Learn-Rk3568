@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include "com/proxy.h"
+#include "com/binding/bind_handle.h"
 #include <vsomeip/application.hpp>
 #include <vsomeip/runtime.hpp>
 #include <memory>

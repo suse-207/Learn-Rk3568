@@ -2,9 +2,9 @@
 #include <iostream>
 #include <thread>
 
-#include "com/runtime.h"
-#include "com/skeleton.h"
-#include "com/bind_runtime_factory.h"
+#include "com/api/runtime.h"
+#include "com/api/skeleton.h"
+#include "com/binding/bind_runtime_factory.h"
 
 #include "ota/boot_controller.h"
 #include "ota/ota_manager.h"

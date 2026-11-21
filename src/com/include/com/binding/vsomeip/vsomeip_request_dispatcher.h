@@ -18,7 +18,7 @@
 
 #pragma once
 
-#include "com/types.h"
+#include "com/api/types.h"
 #include <ara/core/future.h>
 #include <ara/core/promise.h>
 #include <vsomeip/application.hpp>

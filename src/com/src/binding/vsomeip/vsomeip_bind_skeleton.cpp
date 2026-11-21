@@ -4,7 +4,7 @@
 /// @file       vsomeip_bind_skeleton.cpp
 /// @brief      vsomeip binding skeleton implementation
 
-#include "com/vsomeip/vsomeip_bind_skeleton.h"
+#include "com/binding/vsomeip/vsomeip_bind_skeleton.h"
 #include <vsomeip/message.hpp>
 #include <vsomeip/payload.hpp>
 

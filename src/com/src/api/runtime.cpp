@@ -4,7 +4,7 @@
 /// @file       runtime.cpp
 /// @brief      Communication runtime implementation
 
-#include "com/runtime.h"
+#include "com/api/runtime.h"
 
 namespace com
 {

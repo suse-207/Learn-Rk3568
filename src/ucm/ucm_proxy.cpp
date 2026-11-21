@@ -6,7 +6,7 @@
 #include <utility>
 #include <vector>
 
-#include "com/proxy.h"
+#include "com/api/proxy.h"
 #include "ucm/ucm_protocol.h"
 
 namespace ucm {

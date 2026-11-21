@@ -11,7 +11,7 @@
 /// 所有可变状态由 mutex_ 保护；Promise 的结算一律在锁外完成
 /// （Promise::SetResult 会同步执行用户续体，持锁结算会自死锁）。
 
-#include "com/vsomeip/vsomeip_request_dispatcher.h"
+#include "com/binding/vsomeip/vsomeip_request_dispatcher.h"
 
 #include <vsomeip/message.hpp>
 #include <vsomeip/payload.hpp>

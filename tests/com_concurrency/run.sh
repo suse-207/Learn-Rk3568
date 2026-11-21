@@ -50,12 +50,12 @@ echo "== building (vsomeip prefix: $PREFIX)"
     -I"$INCDIR" \
     -o "$BUILD/com_concurrency_test" \
     "$DIR/main.cpp" \
-    "$ROOT/src/com/src/runtime.cpp" \
-    "$ROOT/src/com/src/bind_runtime_factory.cpp" \
-    "$ROOT/src/com/src/vsomeip/vsomeip_bind_runtime.cpp" \
-    "$ROOT/src/com/src/vsomeip/vsomeip_bind_handle.cpp" \
-    "$ROOT/src/com/src/vsomeip/vsomeip_bind_skeleton.cpp" \
-      "$ROOT/src/com/src/vsomeip/vsomeip_request_dispatcher.cpp" \
+    "$ROOT/src/com/src/api/runtime.cpp" \
+    "$ROOT/src/com/src/binding/bind_runtime_factory.cpp" \
+    "$ROOT/src/com/src/binding/vsomeip/vsomeip_bind_runtime.cpp" \
+    "$ROOT/src/com/src/binding/vsomeip/vsomeip_bind_handle.cpp" \
+    "$ROOT/src/com/src/binding/vsomeip/vsomeip_bind_skeleton.cpp" \
+      "$ROOT/src/com/src/binding/vsomeip/vsomeip_request_dispatcher.cpp" \
     "$ROOT/src/common/ara-core/src/abort.cpp" \
     "$ROOT/src/common/ara-core/src/initialize.cpp" \
     -L"$LIBDIR" -lvsomeip3 -Wl,-rpath,"$LIBDIR" || exit 1

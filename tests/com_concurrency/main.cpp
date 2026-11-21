@@ -36,10 +36,10 @@
 
 #include <ara/core/future.h>
 
-#include "com/bind_runtime_factory.h"
-#include "com/proxy.h"
-#include "com/runtime.h"
-#include "com/skeleton.h"
+#include "com/binding/bind_runtime_factory.h"
+#include "com/api/proxy.h"
+#include "com/api/runtime.h"
+#include "com/api/skeleton.h"
 
 namespace {
 

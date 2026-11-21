@@ -4,11 +4,12 @@
 /// @file       vsomeip_bind_runtime.cpp
 /// @brief      vsomeip binding runtime implementation
 
-#include "com/vsomeip/vsomeip_bind_runtime.h"
-#include "com/vsomeip/vsomeip_bind_handle.h"
-#include "com/vsomeip/vsomeip_bind_skeleton.h"
-#include "com/vsomeip/vsomeip_request_dispatcher.h"
-#include "com/runtime.h"
+#include "com/binding/vsomeip/vsomeip_bind_runtime.h"
+#include "com/binding/vsomeip/vsomeip_bind_handle.h"
+#include "com/binding/vsomeip/vsomeip_bind_skeleton.h"
+#include "com/binding/vsomeip/vsomeip_request_dispatcher.h"
+#include "com/api/skeleton.h"
+#include "com/api/runtime.h"
 #include <vsomeip/runtime.hpp>
 #include <vsomeip/application.hpp>
 #include <vsomeip/message.hpp>

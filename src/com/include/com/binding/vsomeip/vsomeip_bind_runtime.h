@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include "com/bind_runtime.h"
+#include "com/binding/bind_runtime.h"
 #include <vsomeip/runtime.hpp>
 #include <vsomeip/application.hpp>
 #include <memory>

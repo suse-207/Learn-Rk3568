@@ -8,9 +8,9 @@
 #include <thread>
 #include <vector>
 
-#include "com/bind_runtime_factory.h"
-#include "com/runtime.h"
-#include "com/skeleton.h"
+#include "com/binding/bind_runtime_factory.h"
+#include "com/api/runtime.h"
+#include "com/api/skeleton.h"
 
 #include "ota/boot_controller.h"
 #include "ota/linuxab_boot_controller.h"

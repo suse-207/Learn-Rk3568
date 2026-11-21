@@ -4,8 +4,8 @@
 /// @file       vsomeip_bind_handle.cpp
 /// @brief      vsomeip binding handle implementation
 
-#include "com/vsomeip/vsomeip_bind_handle.h"
-#include "com/vsomeip/vsomeip_request_dispatcher.h"
+#include "com/binding/vsomeip/vsomeip_bind_handle.h"
+#include "com/binding/vsomeip/vsomeip_request_dispatcher.h"
 #include <vsomeip/message.hpp>
 #include <vsomeip/payload.hpp>
 

@@ -19,6 +19,25 @@
 
 底层目前只实现 vsomeip 绑定。DDS、Raw TCP 仅作为后续扩展点。
 
+## 目录分层（P1）
+
+按 `docs/adr/0001-public-api-ownership.md`（C1/C2）分层，业务层只应包含 `com/api/`：
+
+```text
+include/com/
+  api/       types.h  com_error_domain.h  runtime.h  proxy.h  skeleton.h
+             —— 公共 API；业务层唯一的包含入口
+  binding/   bind_runtime.h  bind_runtime_factory.h  bind_handle.h  bind_skeleton.h
+             —— 绑定 SPI；业务层不得包含（TODO：`api/proxy.h` 与 `api/skeleton.h`
+                目前仍包含它们，P2/P7 不透明化后移除）
+  binding/vsomeip/  vsomeip_bind_{runtime,handle,skeleton}.h  vsomeip_request_dispatcher.h
+             —— vsomeip 具体实现
+  *.h        兼容转发头（deprecated，仅为仓库外消费者保留，P8 删除）
+```
+
+> 下面「使用示例」是 **P1 时的形态**：应用仍手工 `CreateBindRuntime("vsomeip", ...)`。
+> 这属于 ADR 的 C19（应用层指定协议实现），将在 P5 改为 `Runtime` 自行装配绑定。
+
 ## 当前架构
 
 ```mermaid
@@ -208,9 +227,9 @@ VsomeipBindHandle
 ### 服务端
 
 ```cpp
-#include "com/runtime.h"
-#include "com/bind_runtime_factory.h"
-#include "com/skeleton.h"
+#include "com/api/runtime.h"
+#include "com/binding/bind_runtime_factory.h"
+#include "com/api/skeleton.h"
 
 int main() {
     auto *runtime = com::Runtime::Get();
@@ -255,9 +274,9 @@ int main() {
 ### 客户端
 
 ```cpp
-#include "com/runtime.h"
-#include "com/bind_runtime_factory.h"
-#include "com/proxy.h"
+#include "com/api/runtime.h"
+#include "com/binding/bind_runtime_factory.h"
+#include "com/api/proxy.h"
 
 int main() {
     auto *runtime = com::Runtime::Get();

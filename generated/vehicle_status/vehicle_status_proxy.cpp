@@ -3,7 +3,7 @@
 
 #include <chrono>
 
-#include "com/proxy.h"
+#include "com/api/proxy.h"
 
 namespace vehicle_status {
 
