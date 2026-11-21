@@ -19,6 +19,7 @@
 #pragma once
 
 #include "com/api/types.h"
+#include "com/binding/bind_handle.h"
 #include <ara/core/future.h>
 #include <ara/core/promise.h>
 #include <vsomeip/application.hpp>
@@ -31,6 +32,10 @@ namespace com
 {
     namespace vsomeip_binding
     {
+
+        // 请求提交结果与在途 token 由绑定 SPI 定义（com/binding/bind_handle.h）
+        using proxy::Submission;
+        using proxy::SubmissionToken;
 
         /// @brief 请求分发器：runtime 级共享，所有 BindHandle 共用
         class VsomeipRequestDispatcher
@@ -54,22 +59,17 @@ namespace com
             VsomeipRequestDispatcher(VsomeipRequestDispatcher const &) = delete;
             VsomeipRequestDispatcher &operator=(VsomeipRequestDispatcher const &) = delete;
 
-            /// @brief 同步发送并等待响应
-            /// @details 超时由调用线程拥有：到期时摘下自己那条、记墓碑、返回 kTimeout
-            Result<std::vector<uint8_t>> Send(
-                ServiceIdentifier serviceId,
-                InstanceIdentifier instanceId,
-                MethodIdentifier methodId,
-                std::vector<uint8_t> const &requestData,
-                Duration timeout) noexcept;
-
-            /// @brief 异步发送
-            /// @details 不承诺超时：只在响应到达或 Stop() 时结算
-            Future<std::vector<uint8_t>> SendAsync(
+            /// @brief 提交请求：登记 -> send -> 绑定 session
+            /// @details 本层不认识超时；token 为空表示提交阶段即失败（错误已在 future）
+            Submission Submit(
                 ServiceIdentifier serviceId,
                 InstanceIdentifier instanceId,
                 MethodIdentifier methodId,
                 std::vector<uint8_t> const &requestData) noexcept;
+
+            /// @brief 调用方放弃某条在途请求：摘下、记墓碑、以 kTimeout 结算
+            /// @return 是否真的摘下（false 表示已被响应或 Stop() 结算）
+            bool Drop(SubmissionToken token) noexcept;
 
             /// @brief 停止：拒绝新请求、以错误结束全部在途请求、注销全部 method handler
             /// @details 幂等，可重复调用

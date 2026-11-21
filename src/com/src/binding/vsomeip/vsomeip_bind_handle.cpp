@@ -61,49 +61,40 @@ namespace com
             return "vsomeip";
         }
 
-        Result<std::vector<uint8_t>> VsomeipBindHandle::SendRequest(
-            MethodIdentifier methodId,
-            std::vector<uint8_t> const &requestData,
-            Duration timeout) noexcept
+        namespace
         {
-            if (!IsValid())
+            /// @brief 构造一个立即失败的 Submission（token 为空，错误已写入 future）
+            proxy::Submission ErrorSubmission(ComErrc errc) noexcept
             {
-                return Result<std::vector<uint8_t>>::FromError(ComErrc::kInvalidHandle);
+                auto promise = std::make_shared<ara::core::Promise<std::vector<uint8_t>>>();
+                proxy::Submission submission;
+                submission.future = promise->get_future();
+                promise->SetError(MakeErrorCode(errc));
+                return submission;
             }
+        } // namespace
 
-            if (!dispatcher_)
-            {
-                return Result<std::vector<uint8_t>>::FromError(ComErrc::kNotInitialized);
-            }
-
-            // 请求状态、session 匹配与超时全部由 runtime 级 dispatcher 负责。
-            return dispatcher_->Send(serviceId_, instanceId_, methodId, requestData, timeout);
-        }
-
-        Future<std::vector<uint8_t>> VsomeipBindHandle::SendRequestAsync(
+        Submission VsomeipBindHandle::Submit(
             MethodIdentifier methodId,
             std::vector<uint8_t> const &requestData) noexcept
         {
-            auto errorFuture = [](ComErrc errc)
-            {
-                auto promise = std::make_shared<ara::core::Promise<std::vector<uint8_t>>>();
-                auto future = promise->get_future();
-                promise->SetError(MakeErrorCode(errc));
-                return future;
-            };
-
             if (!IsValid())
             {
-                return errorFuture(ComErrc::kInvalidHandle);
+                return ErrorSubmission(ComErrc::kInvalidHandle);
             }
 
             if (!dispatcher_)
             {
-                return errorFuture(ComErrc::kNotInitialized);
+                return ErrorSubmission(ComErrc::kNotInitialized);
             }
 
-            // 不承诺超时：由 dispatcher 在响应到达或 Stop 时结算
-            return dispatcher_->SendAsync(serviceId_, instanceId_, methodId, requestData);
+            // 只管登记与发送；等待与超时由调用线程（BindHandle::SendRequest）负责
+            return dispatcher_->Submit(serviceId_, instanceId_, methodId, requestData);
+        }
+
+        bool VsomeipBindHandle::Drop(SubmissionToken token) noexcept
+        {
+            return dispatcher_ ? dispatcher_->Drop(token) : false;
         }
 
         void VsomeipBindHandle::SubscribeEvent(

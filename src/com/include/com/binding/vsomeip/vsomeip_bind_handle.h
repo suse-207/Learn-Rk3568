@@ -17,6 +17,10 @@ namespace com
     namespace vsomeip_binding
     {
 
+        // 绑定 SPI 的提交结果与在途 token
+        using proxy::Submission;
+        using proxy::SubmissionToken;
+
         class VsomeipRequestDispatcher;
 
         /// @brief vsomeip binding handle implementation
@@ -44,23 +48,13 @@ namespace com
             bool IsValid() const noexcept override;
             char const *GetBindRuntimeName() const noexcept override;
 
-            /// @brief Send a request and wait for response
-            /// @param[in] methodId Method identifier
-            /// @param[in] requestData Request data
-            /// @param[in] timeout Timeout duration
-            /// @return Response data
-            Result<std::vector<uint8_t>> SendRequest(
-                MethodIdentifier methodId,
-                std::vector<uint8_t> const &requestData,
-                Duration timeout) noexcept override;
-
-            /// @brief Send a request asynchronously, returning an ara::com-style Future (P2)
-            /// @param[in] methodId Method identifier
-            /// @param[in] requestData Request data
-            /// @return Future that will be fulfilled with response data or error
-            Future<std::vector<uint8_t>> SendRequestAsync(
+            /// @brief 提交请求（绑定层不认识超时，ADR 0001 C7）
+            Submission Submit(
                 MethodIdentifier methodId,
                 std::vector<uint8_t> const &requestData) noexcept override;
+
+            /// @brief 调用方放弃在途请求
+            bool Drop(SubmissionToken token) noexcept override;
 
             /// @brief Subscribe to an event
             /// @param[in] eventId Event identifier

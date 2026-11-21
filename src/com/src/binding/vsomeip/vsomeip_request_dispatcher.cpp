@@ -44,12 +44,8 @@ namespace com
                 Stop();
             }
 
-            /// @brief 提交结果：token 为空表示立即失败（错误已写进 future）
-            struct Submission
-            {
-                Future<std::vector<uint8_t>> future;
-                std::optional<std::uint32_t> token;
-            };
+            /// @brief 提交结果复用 SPI 类型（token 为空表示立即失败）
+            using Submission = proxy::Submission;
 
             /// @brief 提交一个请求；返回的 future 一定会在响应或停止时结算
             Submission Submit(
@@ -59,7 +55,7 @@ namespace com
                 std::vector<uint8_t> const &requestData) noexcept;
 
             /// @brief 同步调用方到期时摘下自己那条（成功摘下返回 true 并记统计）
-            bool Drop(std::uint32_t token) noexcept;
+            bool Drop(SubmissionToken token) noexcept;
 
             void Stop() noexcept;
 
@@ -90,22 +86,22 @@ namespace com
             void OnMessage(Session session, std::shared_ptr<vsomeip_v3::message> const &message) noexcept;
 
             /// @brief 唯一删除入口：同时清理 calls_ 与 bySession_
-            void DropLocked(std::uint32_t token) noexcept;
+            void DropLocked(SubmissionToken token) noexcept;
 
             void RememberAbandonedLocked(Session session) noexcept;
 
-            std::uint32_t NextTokenLocked() noexcept;
+            SubmissionToken NextTokenLocked() noexcept;
 
             std::shared_ptr<vsomeip_v3::application> app_;
 
             mutable std::mutex mutex_;
-            std::map<std::uint32_t, PendingCall> calls_;                  ///< token -> 在途请求（权威）
-            std::map<Session, std::uint32_t> bySession_;                  ///< session -> token（派生索引）
+            std::map<SubmissionToken, PendingCall> calls_;                  ///< token -> 在途请求（权威）
+            std::map<Session, SubmissionToken> bySession_;                  ///< session -> token（派生索引）
             std::map<Session, std::vector<std::vector<uint8_t>>> early_;  ///< send 与绑定之间到达的响应
             std::set<Session> abandoned_;                                 ///< 墓碑：已完成/已放弃的 session
             std::set<MethodKey> registered_;                              ///< 已注册稳定 handler 的方法
 
-            std::uint32_t nextToken_{0};
+            SubmissionToken nextToken_{0};
             bool stopped_{false};
 
             std::atomic<std::uint64_t> statSubmitted_{0};
@@ -116,7 +112,7 @@ namespace com
 
         // ---------------------------------------------------------------- 内部工具
 
-        std::uint32_t VsomeipRequestDispatcher::Impl::NextTokenLocked() noexcept
+        SubmissionToken VsomeipRequestDispatcher::Impl::NextTokenLocked() noexcept
         {
             ++nextToken_;
             if (nextToken_ == 0)
@@ -137,7 +133,7 @@ namespace com
             }
         }
 
-        void VsomeipRequestDispatcher::Impl::DropLocked(std::uint32_t token) noexcept
+        void VsomeipRequestDispatcher::Impl::DropLocked(SubmissionToken token) noexcept
         {
             auto it = calls_.find(token);
             if (it == calls_.end())
@@ -192,7 +188,7 @@ namespace com
             submission.future = promise->get_future();
 
             // 阶段一：锁内登记（不 send、不结算）
-            std::uint32_t token = 0;
+            SubmissionToken token = 0;
             std::optional<ComErrc> registerError;
             {
                 std::lock_guard<std::mutex> lock(mutex_);
@@ -383,7 +379,7 @@ namespace com
 
         // ---------------------------------------------------------------- 超时 / 停止
 
-        bool VsomeipRequestDispatcher::Impl::Drop(std::uint32_t token) noexcept
+        bool VsomeipRequestDispatcher::Impl::Drop(SubmissionToken token) noexcept
         {
             PromisePtr promise;
             {
@@ -403,7 +399,7 @@ namespace com
 
         void VsomeipRequestDispatcher::Impl::Stop() noexcept
         {
-            std::map<std::uint32_t, PendingCall> drained;
+            std::map<SubmissionToken, PendingCall> drained;
             std::set<MethodKey> registered;
             {
                 std::lock_guard<std::mutex> lock(mutex_);
@@ -467,39 +463,18 @@ namespace com
             }
         }
 
-        Result<std::vector<uint8_t>> VsomeipRequestDispatcher::Send(
-            ServiceIdentifier serviceId,
-            InstanceIdentifier instanceId,
-            MethodIdentifier methodId,
-            std::vector<uint8_t> const &requestData,
-            Duration timeout) noexcept
-        {
-            auto submission = impl_->Submit(serviceId, instanceId, methodId, requestData);
-            if (!submission.token.has_value())
-            {
-                return submission.future.GetResult();  // 立即失败，错误已写入 future
-            }
-
-            if (submission.future.wait_for(timeout) == ara::core::future_status::ready)
-            {
-                return submission.future.GetResult();
-            }
-
-            // 到期：由调用线程摘下自己那条（记墓碑），不覆盖别人已结算的结果
-            if (impl_->Drop(*submission.token))
-            {
-                return Result<std::vector<uint8_t>>::FromError(ComErrc::kTimeout);
-            }
-            return submission.future.GetResult();
-        }
-
-        Future<std::vector<uint8_t>> VsomeipRequestDispatcher::SendAsync(
+        proxy::Submission VsomeipRequestDispatcher::Submit(
             ServiceIdentifier serviceId,
             InstanceIdentifier instanceId,
             MethodIdentifier methodId,
             std::vector<uint8_t> const &requestData) noexcept
         {
-            return impl_->Submit(serviceId, instanceId, methodId, requestData).future;
+            return impl_->Submit(serviceId, instanceId, methodId, requestData);
+        }
+
+        bool VsomeipRequestDispatcher::Drop(SubmissionToken token) noexcept
+        {
+            return impl_ ? impl_->Drop(token) : false;
         }
 
         void VsomeipRequestDispatcher::Stop() noexcept
