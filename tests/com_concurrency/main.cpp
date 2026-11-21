@@ -169,6 +169,21 @@ int RunClient() {
             }
             auto copied = handles;
             std::thread([copied, runtime, bindRuntime, start]() {
+                // C1 回归：应用已经 start、服务已在线，发现必须事件驱动地立即就绪。
+                // 失败时打印 " FAIL "，run.sh 的计数判定会把它算成失败。
+                {
+                    com::proxy::ServiceProxy discoveryProxy(kService, kInstance);
+                    auto discoveryInit = discoveryProxy.Init();
+                    bool discoveryReady =
+                        discoveryInit &&
+                        discoveryProxy.WaitForAvailable(std::chrono::milliseconds(3000));
+                    if (discoveryReady) {
+                        std::cout << "[client] discovery ready (event-driven)" << std::endl;
+                    } else {
+                        std::cout << "[client] discovery FAIL ready=no" << std::endl;
+                    }
+                    discoveryProxy.Deinit();
+                }
                 for (auto const &handle : copied) {
                     if (!handle || !handle->IsValid()) {
                         std::cout << "[client] invalid handle" << std::endl;

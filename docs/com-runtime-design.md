@@ -394,6 +394,7 @@ TSAN=1 bash tests/com_concurrency/run.sh          # 并发改动必跑：只看�
 | `shutdown` | 有在途请求时 `Stop()` | 未覆盖 | 全部以错误结束，无泄漏 | S4 |
 | `late` | 超时后重发同方法，迟到响应到达 | 未覆盖 | 迟到被丢弃，新请求不受影响 | S5 |
 | `stress` | 64 并发 + 乱序/逆序应答 | 未覆盖 | 全部匹配 | S5 |
+| `discovery` | 服务在线后 `ServiceProxy::WaitForAvailable` 必须立即就绪（事件驱动） | 未覆盖 | 每次 client 输出 `discovery ready` | C1 |
 
 ---
 
@@ -414,49 +415,59 @@ TSAN=1 bash tests/com_concurrency/run.sh          # 并发改动必跑：只看�
 
 ---
 
-## 7. 与最佳标准的偏差清单
+## 7. 缺陷清单与状态（权威核对表）
 
-判断标准（每条改动都要对照）：
+状态只有三种：**已修**（附验证证据）/ **延后**（已决定不做，注明归属）/ **未验证**（代码存在但没测到）。
+不在这张表里的东西，一律不算“已验证”。
 
-1. **单一真源**：一个事实只有一处真源（超时、可用性、在途状态不允许多条并行路径）；
-2. **公共 API 不泄漏绑定**：应用只接触 `ServiceProxy` / `ServiceSkeleton`，`BindHandle` 是 binding 内部类型；
-3. **等待必须事件驱动**：任何“等条件成立”都要有唤醒机制，不能轮询；
-4. **失败可观测**：丢弃、超时、错误码可计数/追踪；
-5. **异常安全**：构造/析构不吞异常、不在 `noexcept` 构造里起线程；
-6. **测试贴近现实**：不靠 `sleep` 赌时序。
+### 7.1 已修（14 项）
 
-### 7.1 当前实现的偏差与处置
-
-| 编号 | 偏差 | 违反 | 处置 |
+| # | 缺陷 | 处置 | 验证证据 |
 | --- | --- | --- | --- |
-| A1 | 异步超时曾靠 dispatcher 内的定时线程 | 1.5 硬约束 1（com 不拥有 loop） | 已解决：删线程、回退 4 参重载与 5 s 默认值；同步超时归调用方，异步不承诺超时 |
-| A2 | 到期判定曾依赖定时线程全表扫描 | 1.5 硬约束 1 + 复杂度 | 已解决：改为 `(deadline, token)` 有序索引，同步等待只比较自己那条 |
-| A3 | `Submission.token == 0` 当失败哨兵 | 显式契约 / ES.45 | 已解决：`Submit` 直接返回 `Future`，失败在内部结算 |
-| A4 | `pending_` + `sessionToToken_` + `bound` 三处描述同一事实 | 单一真源 / 状态最小化 | 已解决：`calls_` 为唯一权威，`bySession_`/`deadlines_` 是派生索引，删除只有 `DropLocked` 一个入口 |
-| A5 | `Impl` 构造里起线程 | 1.5 硬约束 1 + E.12 | 已解决：dispatcher 不启动任何线程（无定时器、无 worker） |
-| A6 | 迟到/早到响应静默丢弃 | 可观测性 | 已解决：`Stats{submitted,inFlight,expired,droppedLate,droppedEarly}` |
+| 1 | 同方法并发 payload 串台 / 假超时 | method 级稳定 handler + session 精确匹配 | `same`/`steal` 修复前 FAILED，修复后 PASS（S1 `6bb4854`） |
+| 2 | 跨 handle 同方法并发仍然串台 | 请求表放 runtime 级（与 handler 注册同域） | `cross` 修复前 FAILED，修复后 PASS（S2 `f6f0ce9`） |
+| 3 | 异步请求走另一套注册路径 | 异步复用同一条在途表 | `async` 两条并发各拿自己的响应 |
+| 4 | 超时有两个所有者 | 删库内定时线程；同步超时由调用线程拥有 | 代码中无 `std::thread`；构建 + 六场景 |
+| 5 | 迟到响应可能命中回绕后的新请求 | session 墓碑（上限 1024，超限整体清空） | 代码 + TSan 干净 |
+| 6 | 到期判定依赖全表扫描 O(n) | 无定时器后不再需要；同步只比较自己那条 | 代码 |
+| 7 | `Submission.token == 0` 当失败哨兵 | 改为 `{future, optional<token>}` | 代码 |
+| 8 | 状态散在三处（`pending_`/`sessionToToken_`/`bound`） | `calls_` 唯一权威 + `bySession_` 派生索引 + `optional<session>` | 代码 |
+| 9 | `Impl` 构造里起线程且 `noexcept` | 不启动任何线程 | 代码 |
+| 10 | 迟到/早到响应静默丢弃 | `Stats{submitted,inFlight,timedOut,droppedLate,droppedEarly}` | 代码 + `GetStats()` |
+| 11 | `Runtime::Init()` 空实现 | 显式状态 + 幂等；未 Init 拒绝注册 | 构建 + 六场景（S3/D3/C2 `5160125`） |
+| 12 | 绑定重名静默覆盖（先 Init 再覆盖 → 泄漏） | `kAlreadyInitialized`，检查放在 `Init()` 之前 | `duplicate binding rejected errc=7` |
+| 13 | 重复 `Stop()` 放大 vsomeip teardown 竞态 | `Stop()` 幂等（atomic 守卫） | TSan 报告仍来自 vsomeip，来源已确认（外部缺陷） |
+| 14 | 发现机制：`Init()` 不注册回调、`WaitForAvailable` 轮询、析构留悬空回调 | 注册 `RegisterFindServiceHandle` + 条件变量 + 析构 `Deinit()` 注销 | `discovery ready (event-driven)`；位置放错时会打印 FAIL（C1，未提交） |
 
-### 7.2 原工程的结构性偏差
+### 7.2 明确延后（5 项）
 
-| 编号 | 现状（已核实） | 为什么不达标 | 目标形态 | 阶段 |
-| --- | --- | --- | --- | --- |
-| B1 | 业务直接调 `handle_.SendRequest(...)`（`src/ucm/ucm_proxy.cpp` 9 处）；`ServiceProxy` 没有请求方法 | 公共 API 泄漏绑定层类型，应用绕过了代理层 | `ServiceProxy::SendRequest/Async` 为唯一入口；`BindHandle` 移入 `com/internal/` | S3' |
-| B2 | `ServiceProxy::WaitForAvailable` 是 10 ms 轮询忙等 | 违反“等待必须事件驱动”，空转 CPU | 发现回调 + 条件变量 | S3' |
-| B3 | 事件只在 binding 层（`BindHandle::SubscribeEvent`、`BindSkeleton::SendEvent`） | 公共 API 缺事件能力，使用方被迫用绑定类型 | `ServiceProxy::Subscribe` / `ServiceSkeleton::OfferEvent`，绑定层隐藏 | S3' |
-| B4 | `Runtime::Init()` 空实现；`RegisterBindRuntime` 同名静默覆盖；无状态机 | 生命周期无定义，初始化失败不可判 | 显式状态 + `kAlreadyExisting` + 幂等 Init | S4 |
-| B5 | `Result` 与 `Future` 双轨、`ComErrc` 与 `future_errc` 混用、settle 线程未文档化 | 错误与交付语义不统一，调用方无法推断行为 | 单一错误域 + 明确“谁在哪个线程 settle” | S4 |
-| B6 | 测试 `sleep 3` 等待服务可用；未进 CI | 违反“测试贴近现实”，易偶发失败 | 等发现事件；参数化等待；可入 CI | S5 |
+| # | 项 | 原因 | 归属 |
+| --- | --- | --- | --- |
+| 15 | `BindHandle` 泄漏到业务（`src/ucm` 9 处、`apps/someip_client`、idlc 产物） | 需要同时改 UCM + idlc 生成器 | UCM/IDL 阶段 |
+| 16 | 公共 API 无事件能力（`SubscribeEvent` 只在 binding 层） | 需要 codegen 与 `ServiceProxy` 一起改 | UCM/IDL 阶段 |
+| 17 | 公共 API 的线程归属 / 错误语义未成文 | 纯文档，需与 API 定稿一起写 | 文档专项 |
+| 18 | 测试用 `sleep 3` 等服务上线、未进 CI | 需改测试结构与 CI | 测试专项 |
+| 19 | 服务端执行器（handler 在 io 线程执行、捕获 `this`） | 属 P2，改动面大 | P2 |
 
-### 7.3 自洽点序列
+### 7.3 未验证区域（6 块，不能声称“无缺陷”）
 
-每一步结束时代码都必须是一个自洽状态，不允许“改一半留一半”：
+| 未覆盖 | 风险 |
+| --- | --- |
+| `stress`（64 并发、乱序/逆序应答） | 墓碑上限、`early_` 上限、高压下 session 回绕行为未知 |
+| `shutdown`（有在途请求时 `Stop()`） | 全部以错误结算，但“先 Stop 后响应到达”的时序没测 |
+| `late`（超时后重发，迟到响应到达） | 墓碑逻辑只有推演 |
+| 事件路径（`SubscribeEvent`/`UnsubscribeEvent`） | 完全没测；handler 在 io 线程执行，无悬空防护 |
+| 服务端路径（`VsomeipBindSkeleton`） | 未测；已知会阻塞 io 线程 |
+| 跨进程 / 真实网络 | 全部测试都是同机 127.0.0.1 + 本地 UDS |
 
-| 自洽点 | 内容 | 验收 |
+### 7.4 自洽点进度
+
+| 自洽点 | 内容 | 状态 |
 | --- | --- | --- |
-| ① | A1~A6：dispatcher 内部只剩一处真源 | 六场景全绿；`Stats` 可观测；线程惰性 |
-| ② | B1+B2+B3：公共 API 收口 | 应用代码里不再出现 `BindHandle`；`WaitForAvailable` 无轮询；事件走 `ServiceProxy` |
-| ③ | B4+B5：运行时状态机 + 错误语义统一 | `shutdown` 场景通过；错误码文档化 |
-| ④ | B6：测试与 CI | 无 `sleep` 赌时序；可重复执行 |
+| ① | dispatcher 内部只剩一处真源（无线程、单状态源、可观测） | 完成 |
+| ② | 发现（C1）与运行时（C2）收口 | 完成；B1/B3 延后 |
+| ③ | 运行时状态机与错误语义 | 部分（C2 完成；B5 延后） |
+| ④ | 测试去 sleep、可入 CI | 待办 |
 
 ---
 
