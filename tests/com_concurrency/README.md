@@ -31,6 +31,8 @@ vsomeip 对同一三元组是覆盖语义，于是并发调用必然：
 | `steal` | 是 | 同一方法，先发者 200ms 超时 | 先发者 FAIL(errc=2)，后者 MATCH（修复前：两个都 FAIL） |
 | `cross` | 是 | 同一方法，分属同一 application 的两个句柄 | 两次都 MATCH（修复前：串台或假超时） |
 | `async` | 是 | 同一方法，两条异步调用并发 | 两条都 MATCH（com 不承诺超时，只在响应/Stop 时结算） |
+| `late` | 是 | 第一条 100ms 到期、应答 300ms 才到，随后再发一条 | 第一条 FAIL(errc=2)，迟到应答被丢弃，第二条 MATCH |
+| `shutdown` | 是 | 两条在途时调用 `Stop()` | 两条都以错误结算（`settled=error` 记 MATCH），不能挂住 |
 
 服务端方法 `0x0001` 回显请求中的 u32，`0x0002` 回显 u32+1000，两者都延迟 300ms。
 

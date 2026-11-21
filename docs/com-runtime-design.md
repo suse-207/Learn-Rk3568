@@ -391,8 +391,8 @@ TSAN=1 bash tests/com_concurrency/run.sh          # 并发改动必跑：只看�
 | `steal` | 超时与在途并存 | 失败 | 1 fail / 1 match | S1 |
 | `cross` | 同一服务同方法，分属同一 application 的两个句柄 | 修复前失败 | 通过 | S2 |
 | `async` | 同方法两条异步调用并发（无超时承诺） | 未覆盖 | 两条都 MATCH；超时判据由同步 `steal` 覆盖 | S3 |
-| `shutdown` | 有在途请求时 `Stop()` | 未覆盖 | 全部以错误结束，无泄漏 | S4 |
-| `late` | 超时后重发同方法，迟到响应到达 | 未覆盖 | 迟到被丢弃，新请求不受影响 | S5 |
+| `shutdown` | 有在途请求时 `Stop()` | 已覆盖 | 全部以错误结束，无泄漏 | 完成 |
+| `late` | 超时后重发同方法，迟到响应到达 | 已覆盖 | 迟到被丢弃，新请求不受影响 | 完成 |
 | `stress` | 64 并发 + 乱序/逆序应答 | 未覆盖 | 全部匹配 | S5 |
 | `discovery` | 服务在线后 `ServiceProxy::WaitForAvailable` 必须立即就绪（事件驱动） | 未覆盖 | 每次 client 输出 `discovery ready` | C1 |
 
@@ -449,13 +449,11 @@ TSAN=1 bash tests/com_concurrency/run.sh          # 并发改动必跑：只看�
 | 18 | 测试用 `sleep 3` 等服务上线、未进 CI | 需改测试结构与 CI | 测试专项 |
 | 19 | 服务端执行器（handler 在 io 线程执行、捕获 `this`） | 属 P2，改动面大 | P2 |
 
-### 7.3 未验证区域（6 块，不能声称“无缺陷”）
+### 7.3 未验证区域（4 块，不能声称“无缺陷”）
 
 | 未覆盖 | 风险 |
 | --- | --- |
 | `stress`（64 并发、乱序/逆序应答） | 墓碑上限、`early_` 上限、高压下 session 回绕行为未知 |
-| `shutdown`（有在途请求时 `Stop()`） | 全部以错误结算，但“先 Stop 后响应到达”的时序没测 |
-| `late`（超时后重发，迟到响应到达） | 墓碑逻辑只有推演 |
 | 事件路径（`SubscribeEvent`/`UnsubscribeEvent`） | 完全没测；handler 在 io 线程执行，无悬空防护 |
 | 服务端路径（`VsomeipBindSkeleton`） | 未测；已知会阻塞 io 线程 |
 | 跨进程 / 真实网络 | 全部测试都是同机 127.0.0.1 + 本地 UDS |

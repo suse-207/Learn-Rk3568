@@ -17,6 +17,10 @@
 //            per application, so this is the cross-handle variant of "same")
 //   async  - two asynchronous calls on the same method; com promises no timeout,
 //            so both must simply receive their own response
+//   late   - a call times out, then its response arrives while a second call is in
+//            flight; the late response must be dropped (tombstone), second must succeed
+//   shutdown - Stop() while two calls are in flight; both future must settle with an
+//            error promptly (a settled error counts as MATCH here, a hang as FAIL)
 //
 // The server answers method 0x0001 with the u32 id it received and method 0x0002
 // with id + 1000, both after 300 ms.
@@ -29,6 +33,8 @@
 #include <string>
 #include <thread>
 #include <vector>
+
+#include <ara/core/future.h>
 
 #include "com/bind_runtime_factory.h"
 #include "com/proxy.h"
@@ -284,6 +290,41 @@ int RunClient() {
                             first.join();
                             other.join();
                         }
+                    } else if (g_scenario == "late") {
+                        // 第一条 100ms 到期、服务端 300ms 才回；迟到的应答必须被墓碑丢弃，
+                        // 不能落到随后那条请求上。
+                        run(handle, 1, kMethodEcho, false, 100);
+                        run(handle, 2, kMethodEcho, false, 3000);
+                    } else if (g_scenario == "shutdown") {
+                        // 有在途请求时 Stop()：dispatcher 必须把它们以错误结算，不能挂住。
+                        std::vector<std::uint8_t> first;
+                        std::vector<std::uint8_t> second;
+                        PutU32(first, 1);
+                        PutU32(second, 2);
+                        auto firstFuture = handle->SendRequestAsync(kMethodEcho, first);
+                        auto secondFuture = handle->SendRequestAsync(kMethodEcho, second);
+                        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                        runtime->Stop();
+
+                        auto reportSettled = [](int id, com::Future<std::vector<std::uint8_t>> &future) {
+                            if (future.wait_for(std::chrono::milliseconds(2000)) !=
+                                ara::core::future_status::ready) {
+                                std::cout << "[client] shutdown id=" << id
+                                          << " FAIL not-settled" << std::endl;
+                                return;
+                            }
+                            auto result = future.GetResult();
+                            if (!result) {
+                                std::cout << "[client] shutdown id=" << id
+                                          << " settled=error errc=" << result.Error().Value()
+                                          << " MATCH" << std::endl;
+                            } else {
+                                std::cout << "[client] shutdown id=" << id
+                                          << " settled=value FAIL" << std::endl;
+                            }
+                        };
+                        reportSettled(1, firstFuture);
+                        reportSettled(2, secondFuture);
                     } else if (g_scenario == "async") {
                         // 同一方法两条异步并发：com 不承诺超时，只验证异步路径也走
                         // 同一条在途表、两条各自拿到自己的响应。

@@ -90,7 +90,7 @@ check() {
     fi
 }
 
-for scenario in seq diff same steal cross async; do
+for scenario in seq diff same steal cross async late shutdown; do
     echo "== scenario: $scenario"
     stop_all
     rm -f "$ROUTING_SOCKET"
@@ -103,7 +103,7 @@ for scenario in seq diff same steal cross async; do
     grep -E "^\[client\]" "$BUILD/client-$scenario.log"
 
     case "$scenario" in
-        steal) check "$scenario" 1 1 "$BUILD/client-$scenario.log" ;;
+        steal|late) check "$scenario" 1 1 "$BUILD/client-$scenario.log" ;;
         *)     check "$scenario" 2 0 "$BUILD/client-$scenario.log" ;;
     esac
 done
