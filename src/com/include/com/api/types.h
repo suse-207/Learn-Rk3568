@@ -74,6 +74,28 @@ namespace com
     /// @brief Duration type for timeouts
     using Duration = std::chrono::milliseconds;
 
+    /// @brief Serialized payload exchanged through the public API
+    /// @details com 层只交换已序列化字节，编解码属于 gen 层（ADR 0001 C5/C6）
+    using Payload = std::vector<std::uint8_t>;
+
+    /// @brief Shared immutable sample pointer (proxy side, SWS_CM_00702)
+    template <typename T>
+    using SamplePtr = std::shared_ptr<T const>;
+
+    /// @brief Event subscription state (proxy side, SWS_CM_00310)
+    enum class SubscriptionState : std::uint8_t
+    {
+        kSubscribed,
+        kNotSubscribed,
+        kSubscriptionPending,
+    };
+
+    /// @brief New-sample notification handler (SWS_CM_00702)
+    using EventReceiveHandler = std::function<void()>;
+
+    /// @brief Subscription state change handler (SWS_CM_00311)
+    using SubscriptionStateChangeHandler = std::function<void(SubscriptionState)>;
+
     /// @brief Service handle container type
     template <typename T>
     using ServiceHandleContainer = std::vector<T>;

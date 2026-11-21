@@ -50,6 +50,11 @@ if(BUILD_TESTING AND UNIX)
     add_executable(api_headers_test tests/api_headers/main.cpp)
     target_link_libraries(api_headers_test PRIVATE com)
     add_test(NAME api_headers_compile COMMAND api_headers_test)
+
+    # 错误码数值契约（ADR 0001 C4）：静态断言，不通过则编译期失败
+    add_executable(com_error_codes_test tests/com_error_codes/main.cpp)
+    target_link_libraries(com_error_codes_test PRIVATE com)
+    add_test(NAME com_error_codes COMMAND com_error_codes_test)
     add_test(
         NAME api_headers_no_leak
         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/api_headers/check_api_headers.sh

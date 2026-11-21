@@ -377,7 +377,7 @@ namespace com
             }
             else
             {
-                promise->SetError(MakeErrorCode(ComErrc::kCommunicationError));
+                promise->SetError(MakeErrorCode(ComErrc::kCommunicationStackError));
             }
         }
 
@@ -422,7 +422,7 @@ namespace com
             {
                 if (entry.second.promise)
                 {
-                    entry.second.promise->SetError(MakeErrorCode(ComErrc::kCommunicationError));
+                    entry.second.promise->SetError(MakeErrorCode(ComErrc::kCommunicationStackError));
                 }
             }
 

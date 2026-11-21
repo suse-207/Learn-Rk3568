@@ -17,11 +17,16 @@
 int main()
 {
     // 只为让头文件里的类型被真正用到（避免"只是没展开"的假通过）
+    com::Payload payload;
+    payload.push_back(0);
+    com::SubscriptionState state = com::SubscriptionState::kNotSubscribed;
     com::ServiceIdentifier serviceId = 0x6100;
     com::MethodIdentifier methodId = 0x0001;
-    com::ComErrc errc = com::ComErrc::kSuccess;
+    com::ComErrc errc = com::ComErrc::kServiceNotAvailable;
     com::proxy::ServiceProxy *proxy = nullptr;
     com::skeleton::Skeleton *skeleton = nullptr;
+    (void)payload;
+    (void)state;
     (void)serviceId;
     (void)methodId;
     (void)errc;

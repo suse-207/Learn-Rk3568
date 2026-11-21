@@ -10,7 +10,7 @@
 vsomeip 对同一三元组是覆盖语义，于是并发调用必然：
 
 - 一个调用拿到**另一个调用**的响应（payload 串台，但调用方以为成功）；
-- 另一个调用一直等到超时（`ComErrc::kTimeout`，errc=2）；
+- 另一个调用一直等到超时（`ComErrc::kTimeout`，errc=0x1000；超时是项目扩展码，见 ADR 0001 C4）；
 - 如果先超时的那一方在另一方的 handler 注册之后超时，它会顺手把别人的 handler
   也 unregister 掉，导致两个请求同时失败。
 
@@ -28,10 +28,10 @@ vsomeip 对同一三元组是覆盖语义，于是并发调用必然：
 | `seq` | 否 | 同一方法 | 两次都 MATCH |
 | `diff` | 是 | 不同方法 | 两次都 MATCH |
 | `same` | 是 | 同一方法、同一句柄 | 两次都 MATCH（修复前：一个 MISMATCH + 一个 FAIL） |
-| `steal` | 是 | 同一方法，先发者 200ms 超时 | 先发者 FAIL(errc=2)，后者 MATCH（修复前：两个都 FAIL） |
+| `steal` | 是 | 同一方法，先发者 200ms 超时 | 先发者 FAIL(errc=0x1000)，后者 MATCH（修复前：两个都 FAIL） |
 | `cross` | 是 | 同一方法，分属同一 application 的两个句柄 | 两次都 MATCH（修复前：串台或假超时） |
 | `async` | 是 | 同一方法，两条异步调用并发 | 两条都 MATCH（com 不承诺超时，只在响应/Stop 时结算） |
-| `late` | 是 | 第一条 100ms 到期、应答 300ms 才到，随后再发一条 | 第一条 FAIL(errc=2)，迟到应答被丢弃，第二条 MATCH |
+| `late` | 是 | 第一条 100ms 到期、应答 300ms 才到，随后再发一条 | 第一条 FAIL(errc=0x1000)，迟到应答被丢弃，第二条 MATCH |
 | `shutdown` | 是 | 两条在途时调用 `Stop()` | 两条都以错误结算（`settled=error` 记 MATCH），不能挂住 |
 
 服务端方法 `0x0001` 回显请求中的 u32，`0x0002` 回显 u32+1000，两者都延迟 300ms。
