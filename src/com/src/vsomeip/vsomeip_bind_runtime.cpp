@@ -13,6 +13,7 @@
 #include <vsomeip/application.hpp>
 #include <vsomeip/message.hpp>
 #include <vsomeip/payload.hpp>
+#include <atomic>
 
 namespace com
 {
@@ -74,7 +75,10 @@ namespace com
                 }
                 if (vsomeipApp_)
                 {
-                    vsomeipApp_->stop();
+                    if (!stopCalled_.exchange(true))
+                    {
+                        vsomeipApp_->stop();
+                    }
                     vsomeipApp_.reset();
                 }
                 vsomeipRuntime_.reset();
@@ -92,6 +96,12 @@ namespace com
 
             void Stop() noexcept
             {
+                // Stop 是幂等契约：vsomeip 的 endpoint 销毁时序对重复 stop 不友好
+                // （TSan 可复现其 endpoint mutex 与 io 线程的竞争），这里保证只执行一次。
+                if (stopCalled_.exchange(true))
+                {
+                    return;
+                }
                 if (dispatcher_)
                 {
                     dispatcher_->Stop();
@@ -107,6 +117,7 @@ namespace com
             std::shared_ptr<VsomeipRequestDispatcher> dispatcher_;
             std::string applicationName_;
             bool initialized_{false};
+            std::atomic<bool> stopCalled_{false};
         };
 
         VsomeipBindRuntime::VsomeipBindRuntime(std::string const &applicationName) noexcept

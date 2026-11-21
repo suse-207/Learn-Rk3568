@@ -85,6 +85,50 @@
 | P2 | 服务端执行器（业务移出 io 线程） | 未实现，另立文档 |
 | P3 | Runtime 启停/状态与公共 API 语义 | 部分实现（`Runtime::Init()` 为空、绑定重名无检查），另立文档 |
 
+### 1.5 目标架构（按最佳标准）
+
+参考对象与取舍：
+
+| 参照 | 拿它的什么 | 不拿什么 |
+| --- | --- | --- |
+| AUTOSAR AP / ara::com（本机 `~/capi` 是完整实现） | 语义与契约：方法 + 事件双模型、`Result`/错误域、显式生命周期 | 整套 AP 栈（exec/per/phm/sm，与通信层无关且体量过大） |
+| CommonAPI（本机 `~/commonapi-stack` 3.2 + vsomeip binding） | 结构：IDL 单一真源、生成 proxy/stub、**绑定可替换**、超时是调用参数 | Franca 工具链（会与已有 `tools/idlc.py` 形成两套 IDL） |
+
+四条硬约束：
+
+1. **com 不拥有 loop/线程**。loop 属于 binding（vsomeip io）或应用；库内不建定时器、不起工作线程。
+2. **超时归调用方**。同步请求由调用线程按 `Duration` 等待；异步请求在“无人驱动 loop”的前提下**不承诺超时**，只承诺响应到达或 `Stop()` 时结算。
+3. **公共 API 协议无关**。只暴露 service/method/event + `Result`/`Future`；`BindHandle`、`BindSkeleton`、session 等协议概念一律留在 binding 层。
+4. **绑定 SPI 可替换**。上层只依赖 `IBindingRuntime` / `IBindingHandle` / `IBindingSkeleton` 三个接口，vsomeip 只是其中一个实现。
+
+目标目录与职责：
+
+```
+src/com/
+  api/        ServiceProxy / ServiceSkeleton / Result / ErrorDomain / Types
+  core/       Discovery（事件驱动、可用性代际）/ Lifecycle（状态机、幂等）/ ErrorPolicy
+              —— 不含线程、不含 loop、不含协议细节
+  binding/    IBindingRuntime / IBindingHandle / IBindingSkeleton        （SPI）
+    vsomeip/  VsomeipBindRuntime / VsomeipBindHandle / VsomeipBindSkeleton
+              + 请求分发（session 匹配、墓碑、handler 注册）—— 协议相关，属于这里
+  gen/        idlc 产物：proxy / skeleton / codec
+tests/
+  conformance/   同一套契约用例，换绑定只换编译目标
+  concurrency/   同方法并发、跨句柄、异步、停机（现有六场景）
+```
+
+目标 API 形态（关键：超时在签名里，不在库里）：
+
+```cpp
+Result<void>    Init();                                             // 幂等
+Result<Payload> SendRequest(MethodId, Payload, Duration);           // 调用线程拥有超时
+Future<Payload> SendRequestAsync(MethodId, Payload);                // 无超时承诺（响应或 Stop）
+void            Subscribe(EventId, Handler);                        // handler 在 binding 线程
+bool            WaitForAvailable(Duration);                         // 事件驱动，不轮询
+```
+
+与 1.1 的分期对应：P0 的请求分发落在 `binding/vsomeip`（session 匹配是 SOME/IP 专属），P1 的发现落在 `core`，P2 的执行器若将来要做，由**应用**提供 worker，`core` 只定义接口。
+
 ---
 
 ## 2. 问题
@@ -212,15 +256,19 @@ RESULT: PASSED
 
 ### 4.1 结构
 
-把在途请求的状态从 handle 上移到 runtime 级的请求分发器，与 application 同生命周期：
+在途请求的状态从 handle 上移到 **binding 层的 runtime 级分发器**，与 application 同生命周期。
+序列化/session 是 SOME/IP 专属概念，因此分发器属于 `binding/vsomeip`，不放进 `core`。
+它**不拥有任何线程**：超时由调用方线程负责，库内没有定时器。
 
 ```
 VsomeipBindRuntime::Impl                    ← 与 application 同生命周期
   ├ application (vsomeip)
-  └ VsomeipRequestDispatcher
+  └ VsomeipRequestDispatcher                （binding/vsomeip，无自有线程）
         registeredMethods_ : set<(svc,ins,method)>         每个组合只注册一个稳定 handler
-        pending_           : map<session, PendingCall>      在途请求
-        earlyResponses_    : map<session, vector<payload>>  send 与注册之间到达的响应
+        calls_             : map<token, PendingCall>       在途请求（唯一权威记录）
+        bySession_         : map<session, token>           派生索引
+        deadlines_         : set<(deadline, token)>        派生索引（同步等待按 deadline 排序）
+        earlyResponses_    : map<session, vector<payload>>  send 与绑定之间到达的响应
         abandoned_         : set<session>                   墓碑（上限 N，超限整体清空）
         stopped_           : bool                           Stop 之后拒绝新请求
   └ VsomeipBindHandle (每 proxy 一个)        ← 只做参数转换与调用，不再持有请求状态
@@ -229,31 +277,36 @@ VsomeipBindRuntime::Impl                    ← 与 application 同生命周期
 ```cpp
 struct PendingCall {
     std::shared_ptr<ara::core::Promise<std::vector<uint8_t>>> promise;
-    std::chrono::steady_clock::time_point deadline;
-    ServiceIdentifier service; InstanceIdentifier instance; MethodIdentifier method;
+    std::chrono::steady_clock::time_point deadline;   // 仅同步路径使用
+    std::optional<vsomeip_v3::session_t> session;     // send 之后才有值
 };
 ```
 
 ### 4.2 发送：两阶段登记
 
 ```text
-SendAsync(svc, ins, method, data, timeout):
+Send(svc, ins, method, data, timeout)：                 // 同步；超时归调用方
   1. lock
        if stopped_ → 解锁，返回 kNotInitialized
        EnsureMethodHandlerLocked(svc, ins, method)      // 仅首次注册，handler 常驻
-       token = NextPlaceholderLocked()                  // 占位 key，不与真实 session 冲突
-       pending_[token] = {promise, now + timeout, ...}
+       token = NextTokenLocked()                        // 我们自己的身份，不与 session 混用
+       calls_[token] = {promise, now + timeout, nullopt}
+       deadlines_.insert({deadline, token})             // 派生索引，供同步等待排序
      unlock
   2. request = CreateRequest(...); application->send(request)      // 不持锁
   3. lock
        session = request->get_session()                 // send 之后才有值
-       pending_.extract(token) → pending_[session]
-       若 earlyResponses_ 里有该 session：取出 payload，标记待交付
+       calls_[token].session = session; bySession_[session] = token
+       若 earlyResponses_ 里有该 session：取出 payload，DropLocked(token)，标记待交付
      unlock
-  4. 锁外交付：set_value(payload)；超时则 SetError(kTimeout) 并记墓碑
+  4. 锁外交付：set_value(payload)
+  5. 调用方在 deadline 前未拿到结果：
+       lock → 若 token 仍在 calls_ → DropLocked(token)（含墓碑） → unlock
+       → 返回 kTimeout（不覆盖别人已经结算的结果）
 ```
 
 不持锁 send 的原因：发送不被串行化；也不会出现“调用线程持锁 send、io 线程等同一把锁投递响应”的死锁窗口。
+`SendRequestAsync` 复用同一段登记逻辑，只是第 5 步不存在（无超时承诺）。
 
 ### 4.3 响应处理
 
@@ -262,32 +315,23 @@ OnResponse(msg):                                   // vsomeip io 线程
   session = msg->get_session()
   lock
     if session ∈ abandoned_      → 丢弃（迟到响应），计数并告警；解锁返回
-    it = pending_.find(session)
+    it = bySession_.find(session) → calls_.find(token)
       not found → earlyResponses_[session].push_back(payload)；解锁返回
-      found     → entry = pending_.extract(it)      // 保证只 settle 一次
+      found     → entry = calls_.extract(token)      // 保证只 settle 一次
   unlock
   entry.promise->set_value(payload)                 // 锁外
 ```
 
 ### 4.4 超时策略
 
-- **同步**：`SendRequest(svc, ins, method, data, timeout)` 沿用入参 timeout，语义不变。
-- **异步**：新增带超时的重载，现有签名保持不动：
+前提（见 1.5）：**com 不拥有 loop/线程，超时归调用方。**
 
-```cpp
-// 新增
-Future<std::vector<uint8_t>> SendRequestAsync(
-    ServiceIdentifier, InstanceIdentifier, MethodIdentifier,
-    std::vector<uint8_t> const &requestData, Duration timeout) noexcept;
+- **同步** `SendRequest(svc, ins, method, data, Duration)`：由**调用线程**持有一条在途记录并等待到 deadline；到期时调用方摘下自己那条、记墓碑、返回 `kTimeout`。库内不需要定时器，也不存在“两个所有者”。
+- **异步** `SendRequestAsync(svc, ins, method, data)`：**不承诺超时**，只在响应到达或 `Stop()` 时结算。原因很简单——异步没有等待线程，而 com 不允许自己起定时线程；在“应用没有统一 loop”的现状下，任何“库内超时”都等于偷偷加一个 loop。
+- **将来若要异步超时**：由**持有 loop 的一方**驱动（应用主循环或 binding 的 io loop），例如调用 `dispatcher.Expire(now)`；在出现真实调用方之前不实现（当前 `SendRequestAsync` 的调用点为 0）。
+- **停机**：`Stop()` 幂等，把所有在途请求以 `kCommunicationError` 结算并注销 handler。
 
-// 现有 3 参重载保留，内部委托 + 具名默认值
-// kDefaultAsyncTimeout = std::chrono::seconds(5)，单点可改
-Future<std::vector<uint8_t>> SendRequestAsync(
-    ServiceIdentifier, InstanceIdentifier, MethodIdentifier,
-    std::vector<uint8_t> const &requestData) noexcept;
-```
-
-原来异步没有超时（跑到析构），现在有默认值，属于可观察行为变化，需要在 README 写明（任务 S5）。
+对应影响：S3 里“4 参异步重载 + 5s 默认超时 + 定时线程”**全部回退**；`async` 测试场景改为“同一方法两条异步并发，各自拿到自己的响应”。
 
 ### 4.5 生命周期
 
@@ -319,12 +363,13 @@ Future<std::vector<uint8_t>> SendRequestAsync(
 
 ## 5. 任务拆解
 
-每步一个提交，都在 `main` 上；每步结束都跑下面三条命令，任何一条失败即回滚该步（`git revert`）。
+每步一个提交，都在 `main` 上；每步结束都跑下面四条命令，任何一条失败即回滚该步（`git revert`）。
 
 ```bash
 cmake --build build --target diag_server -j4      # 退出码 0
 ctest --test-dir build -R idlc_byte_compare       # 1/1 Passed
 bash tests/com_concurrency/run.sh                 # RESULT: PASSED
+TSAN=1 bash tests/com_concurrency/run.sh          # 并发改动必跑：只看本仓库代码是否被报竞态
 ```
 
 | 步骤 | 内容 | 完成标准 |
@@ -332,7 +377,7 @@ bash tests/com_concurrency/run.sh                 # RESULT: PASSED
 | **S0** | 本文档 + `tests/com_concurrency/` 入库（测试不纳入 CMake/CTest） | 文档评审通过；`run.sh` 在未修正代码上失败、在探针实现上通过（见 3.2 / 3.3） |
 | **S1** | 新增 `VsomeipRequestDispatcher`（稳定 handler + pending + 墓碑 + 超时），`SendRequest` 改走 dispatcher | `seq/diff/same/steal` 全通过；`diag_server` 构建通过 |
 | **S2** | 新增 `cross` 场景：同一应用内两个句柄（各自对应一个 proxy 的绑定句柄）并发调同一服务的同一方法 | `cross` 通过（验证 I1） |
-| **S3** | `SendRequestAsync` 迁入 dispatcher + 4.4 的两个重载 | `async` 场景（并发 + 超时）通过 |
+| **S3** | `SendRequestAsync` 走同一条在途表（无超时承诺）；回退 4 参重载、5 s 默认值与定时线程 | `async` 场景通过（两条异步并发各拿自己的响应）；无库内线程 |
 | **S4** | 生命周期收尾：`Stop()`/析构 settle 全部 pending、统一注销 handler | `shutdown` 场景通过（有在途请求时 Stop，全部 future 以错误结束） |
 | **S5** | `late`、`stress` 场景；更新 `src/com/README.md:312` 与异步超时说明 | `late`、`stress` 通过；README 与实现一致 |
 
@@ -345,7 +390,7 @@ bash tests/com_concurrency/run.sh                 # RESULT: PASSED
 | `same` | 同方法并发（单 handle） | 失败 | 通过 | S1 |
 | `steal` | 超时与在途并存 | 失败 | 1 fail / 1 match | S1 |
 | `cross` | 同一服务同方法，分属同一 application 的两个句柄 | 修复前失败 | 通过 | S2 |
-| `async` | `SendRequestAsync` 并发 + 超时 | 未覆盖 | 与同步路径一致 | S3 |
+| `async` | 同方法两条异步调用并发（无超时承诺） | 未覆盖 | 两条都 MATCH；超时判据由同步 `steal` 覆盖 | S3 |
 | `shutdown` | 有在途请求时 `Stop()` | 未覆盖 | 全部以错误结束，无泄漏 | S4 |
 | `late` | 超时后重发同方法，迟到响应到达 | 未覆盖 | 迟到被丢弃，新请求不受影响 | S5 |
 | `stress` | 64 并发 + 乱序/逆序应答 | 未覆盖 | 全部匹配 | S5 |
@@ -358,10 +403,64 @@ bash tests/com_concurrency/run.sh                 # RESULT: PASSED
 2. **回调线程**：响应处理器跑在 vsomeip io 线程，只允许做 map 操作 + 一次 settle；服务端业务处理移出 io 线程是 P2 的事。
 3. **异步行为变化**：3 参 `SendRequestAsync` 从“无超时”变为 5 s 默认超时，需在 README 与调用方说明中体现（S5）。
 4. **测试依赖真实 vsomeip 进程**：需要 vsomeip 3.3.0 与可用的回环端口，目前手工执行，未接 CI。
+5. **外部缺陷（vsomeip 3.3.0，不是本仓库代码）**：TSan 在六个场景下稳定报出
+   `vsomeip_v3::client_endpoint_impl<local::stream_protocol>::~client_endpoint_impl()`
+   中的 `pthread_mutex_destroy` 与 io 线程的 `pthread_mutex_unlock` 竞争（12 条报告 / 7 个日志，
+   全部落在 `libvsomeip3.so.3`，本仓库代码只作为调用帧出现，`vsomeip_request_dispatcher.cpp`
+   命中 0 条）。把 stop 收敛为单次后报告从 12 降到 3，但没有消失 —— 说明是 vsomeip 自身的
+   endpoint 销毁时序问题，我们只放大了它。
+   **规避约束**：`Stop()` 单一所有者（禁止多线程重复 stop）、`Start()` 返回后再 `Stop()/Deinit()`、
+   不修改 `third_party/vsomeip/**`；该缺陷记录在案，不当作本项目的偏差。
 
 ---
 
-## 附录：本地复现
+## 7. 与最佳标准的偏差清单
+
+判断标准（每条改动都要对照）：
+
+1. **单一真源**：一个事实只有一处真源（超时、可用性、在途状态不允许多条并行路径）；
+2. **公共 API 不泄漏绑定**：应用只接触 `ServiceProxy` / `ServiceSkeleton`，`BindHandle` 是 binding 内部类型；
+3. **等待必须事件驱动**：任何“等条件成立”都要有唤醒机制，不能轮询；
+4. **失败可观测**：丢弃、超时、错误码可计数/追踪；
+5. **异常安全**：构造/析构不吞异常、不在 `noexcept` 构造里起线程；
+6. **测试贴近现实**：不靠 `sleep` 赌时序。
+
+### 7.1 当前实现的偏差与处置
+
+| 编号 | 偏差 | 违反 | 处置 |
+| --- | --- | --- | --- |
+| A1 | 异步超时曾靠 dispatcher 内的定时线程 | 1.5 硬约束 1（com 不拥有 loop） | 已解决：删线程、回退 4 参重载与 5 s 默认值；同步超时归调用方，异步不承诺超时 |
+| A2 | 到期判定曾依赖定时线程全表扫描 | 1.5 硬约束 1 + 复杂度 | 已解决：改为 `(deadline, token)` 有序索引，同步等待只比较自己那条 |
+| A3 | `Submission.token == 0` 当失败哨兵 | 显式契约 / ES.45 | 已解决：`Submit` 直接返回 `Future`，失败在内部结算 |
+| A4 | `pending_` + `sessionToToken_` + `bound` 三处描述同一事实 | 单一真源 / 状态最小化 | 已解决：`calls_` 为唯一权威，`bySession_`/`deadlines_` 是派生索引，删除只有 `DropLocked` 一个入口 |
+| A5 | `Impl` 构造里起线程 | 1.5 硬约束 1 + E.12 | 已解决：dispatcher 不启动任何线程（无定时器、无 worker） |
+| A6 | 迟到/早到响应静默丢弃 | 可观测性 | 已解决：`Stats{submitted,inFlight,expired,droppedLate,droppedEarly}` |
+
+### 7.2 原工程的结构性偏差
+
+| 编号 | 现状（已核实） | 为什么不达标 | 目标形态 | 阶段 |
+| --- | --- | --- | --- | --- |
+| B1 | 业务直接调 `handle_.SendRequest(...)`（`src/ucm/ucm_proxy.cpp` 9 处）；`ServiceProxy` 没有请求方法 | 公共 API 泄漏绑定层类型，应用绕过了代理层 | `ServiceProxy::SendRequest/Async` 为唯一入口；`BindHandle` 移入 `com/internal/` | S3' |
+| B2 | `ServiceProxy::WaitForAvailable` 是 10 ms 轮询忙等 | 违反“等待必须事件驱动”，空转 CPU | 发现回调 + 条件变量 | S3' |
+| B3 | 事件只在 binding 层（`BindHandle::SubscribeEvent`、`BindSkeleton::SendEvent`） | 公共 API 缺事件能力，使用方被迫用绑定类型 | `ServiceProxy::Subscribe` / `ServiceSkeleton::OfferEvent`，绑定层隐藏 | S3' |
+| B4 | `Runtime::Init()` 空实现；`RegisterBindRuntime` 同名静默覆盖；无状态机 | 生命周期无定义，初始化失败不可判 | 显式状态 + `kAlreadyExisting` + 幂等 Init | S4 |
+| B5 | `Result` 与 `Future` 双轨、`ComErrc` 与 `future_errc` 混用、settle 线程未文档化 | 错误与交付语义不统一，调用方无法推断行为 | 单一错误域 + 明确“谁在哪个线程 settle” | S4 |
+| B6 | 测试 `sleep 3` 等待服务可用；未进 CI | 违反“测试贴近现实”，易偶发失败 | 等发现事件；参数化等待；可入 CI | S5 |
+
+### 7.3 自洽点序列
+
+每一步结束时代码都必须是一个自洽状态，不允许“改一半留一半”：
+
+| 自洽点 | 内容 | 验收 |
+| --- | --- | --- |
+| ① | A1~A6：dispatcher 内部只剩一处真源 | 六场景全绿；`Stats` 可观测；线程惰性 |
+| ② | B1+B2+B3：公共 API 收口 | 应用代码里不再出现 `BindHandle`；`WaitForAvailable` 无轮询；事件走 `ServiceProxy` |
+| ③ | B4+B5：运行时状态机 + 错误语义统一 | `shutdown` 场景通过；错误码文档化 |
+| ④ | B6：测试与 CI | 无 `sleep` 赌时序；可重复执行 |
+
+---
+
+
 
 ```bash
 cd <repo>

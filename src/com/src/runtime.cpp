@@ -32,6 +32,10 @@ namespace com
 
     Result<void> Runtime::Init() noexcept
     {
+        // Runtime 本身不持有资源，Init 只做状态置位（幂等）；
+        // 绑定层的初始化由 RegisterBindRuntime 内的 bindRuntime->Init() 完成。
+        std::lock_guard<std::mutex> lock(mutex_);
+        initialized_ = true;
         return Result<void>::FromValue();
     }
 
@@ -114,6 +118,21 @@ namespace com
         }
         std::string key(name);
 
+        // 未 Init 的 runtime 不接受注册（显式状态，避免“看起来能用”）
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (!initialized_)
+            {
+                return Result<void>::FromError(ComErrc::kNotInitialized);
+            }
+            // 重名必须在 Init() 之前拒绝：否则会白白创建一个 vsomeip application，
+            // 然后被覆盖丢掉（静默泄漏 + 第二个绑定失效）
+            if (bindRuntimes_.find(key) != bindRuntimes_.end())
+            {
+                return Result<void>::FromError(ComErrc::kAlreadyInitialized);
+            }
+        }
+
         // Initialize the bind runtime before publishing it.
         auto result = bindRuntime->Init();
         if (!result)
@@ -121,9 +140,13 @@ namespace com
             return result;
         }
 
-        // Store the bind runtime
+        // Store the bind runtime（并发下仍可能撞名，再检查一次）
         std::lock_guard<std::mutex> lock(mutex_);
-        bindRuntimes_[std::move(key)] = std::move(bindRuntime);
+        auto inserted = bindRuntimes_.emplace(std::move(key), std::move(bindRuntime));
+        if (!inserted.second)
+        {
+            return Result<void>::FromError(ComErrc::kAlreadyInitialized);
+        }
         return Result<void>::FromValue();
     }
 

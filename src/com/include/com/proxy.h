@@ -47,6 +47,8 @@ namespace com
                 Duration timeout) noexcept = 0;
 
             /// @brief Send a request asynchronously, returning a Future (P2: ara::com-style)
+            /// @details 不承诺超时：只在响应到达或 Stop() 时结算（com 不拥有 loop，
+            ///          没有线程能推进 deadline）
             virtual Future<std::vector<uint8_t>> SendRequestAsync(
                 MethodIdentifier methodId,
                 std::vector<uint8_t> const &requestData) noexcept = 0;

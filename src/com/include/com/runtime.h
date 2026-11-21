@@ -84,6 +84,7 @@ namespace com
         Runtime &operator=(Runtime const &) = delete;
 
         mutable std::mutex mutex_;
+        bool initialized_{false};
         std::map<std::string, std::unique_ptr<BindRuntime>> bindRuntimes_;
 
         // P3: InstanceSpecifier → (serviceId, instanceId) mapping

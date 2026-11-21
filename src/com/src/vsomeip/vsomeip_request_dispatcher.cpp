@@ -3,6 +3,13 @@
 
 /// @file       vsomeip_request_dispatcher.cpp
 /// @brief      vsomeip 请求分发器实现
+///
+/// 并发模型（两方，**无库内线程**）：
+///   - 调用线程：Submit（登记 → send → 绑定 session）、同步等待并在到期时摘下自己那条
+///   - vsomeip io 线程：OnMessage（按 session 找请求、取出、锁外交付）
+///
+/// 所有可变状态由 mutex_ 保护；Promise 的结算一律在锁外完成
+/// （Promise::SetResult 会同步执行用户续体，持锁结算会自死锁）。
 
 #include "com/vsomeip/vsomeip_request_dispatcher.h"
 
@@ -10,8 +17,10 @@
 #include <vsomeip/payload.hpp>
 #include <vsomeip/runtime.hpp>
 
+#include <atomic>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <tuple>
 #include <utility>
@@ -20,19 +29,6 @@ namespace com
 {
     namespace vsomeip_binding
     {
-
-        namespace
-        {
-            /// @brief 墓碑上限：超过后整体清空，避免无界增长
-            constexpr std::size_t kMaxAbandonedSessions = 1024;
-
-            /// @brief 早到响应暂存上限（单个 session / 全局）
-            constexpr std::size_t kMaxEarlyPerSession = 4;
-            constexpr std::size_t kMaxEarlySessions = 64;
-
-            using PromisePtr = std::shared_ptr<ara::core::Promise<std::vector<uint8_t>>>;
-            using MethodKey = std::tuple<std::uint16_t, std::uint16_t, std::uint16_t>;
-        } // namespace
 
         class VsomeipRequestDispatcher::Impl
             : public std::enable_shared_from_this<VsomeipRequestDispatcher::Impl>
@@ -48,33 +44,42 @@ namespace com
                 Stop();
             }
 
-            /// @brief 一次提交的结果：token 为 0 表示提交失败（错误已写进 future）
+            /// @brief 提交结果：token 为空表示立即失败（错误已写进 future）
             struct Submission
             {
                 Future<std::vector<uint8_t>> future;
-                std::uint32_t token{0};
+                std::optional<std::uint32_t> token;
             };
 
+            /// @brief 提交一个请求；返回的 future 一定会在响应或停止时结算
             Submission Submit(
                 ServiceIdentifier serviceId,
                 InstanceIdentifier instanceId,
                 MethodIdentifier methodId,
                 std::vector<uint8_t> const &requestData) noexcept;
 
-            /// @brief 放弃某个在途请求（超时）
-            /// @return true 表示由本函数结束（调用方应返回 kTimeout）
-            ///         false 表示响应已先行取走，调用方应等待 future 的自然结果
-            bool Abandon(std::uint32_t token) noexcept;
+            /// @brief 同步调用方到期时摘下自己那条（成功摘下返回 true 并记统计）
+            bool Drop(std::uint32_t token) noexcept;
 
             void Stop() noexcept;
 
+            Stats GetStats() const noexcept;
+
         private:
+            // ---- 策略参数（文件级策略，收在 Impl 内）
+            static constexpr std::size_t kMaxAbandonedSessions = 1024;  ///< 墓碑上限，超过整体清空
+            static constexpr std::size_t kMaxEarlyPerSession = 4;       ///< 早到响应暂存上限（单 session）
+            static constexpr std::size_t kMaxEarlySessions = 64;        ///< 早到响应暂存上限（全局）
+
+            using PromisePtr = std::shared_ptr<ara::core::Promise<std::vector<uint8_t>>>;
+            using MethodKey = std::tuple<std::uint16_t, std::uint16_t, std::uint16_t>;
+            using Session = vsomeip_v3::session_t;
+
+            /// @brief 一条在途请求（唯一权威记录）
             struct PendingCall
             {
                 PromisePtr promise;
-                std::uint32_t token{0};
-                bool bound{false};
-                vsomeip_v3::session_t session{0};
+                std::optional<Session> session;  ///< send 之后才有值
             };
 
             void EnsureHandlerLocked(
@@ -82,30 +87,46 @@ namespace com
                 InstanceIdentifier instanceId,
                 MethodIdentifier methodId) noexcept;
 
-            void OnMessage(
-                vsomeip_v3::session_t session,
-                std::shared_ptr<vsomeip_v3::message> const &message) noexcept;
+            void OnMessage(Session session, std::shared_ptr<vsomeip_v3::message> const &message) noexcept;
 
-            void RememberAbandonedLocked(vsomeip_v3::session_t session) noexcept;
+            /// @brief 唯一删除入口：同时清理 calls_ 与 bySession_
+            void DropLocked(std::uint32_t token) noexcept;
 
-            void DropLocked(std::map<std::uint32_t, PendingCall>::iterator it) noexcept;
+            void RememberAbandonedLocked(Session session) noexcept;
+
+            std::uint32_t NextTokenLocked() noexcept;
 
             std::shared_ptr<vsomeip_v3::application> app_;
 
-            std::mutex mutex_;
-            std::map<std::uint32_t, PendingCall> pending_;                  // token -> 在途请求
-            std::map<vsomeip_v3::session_t, std::uint32_t> sessionToToken_;  // session -> token
-            std::map<vsomeip_v3::session_t, std::vector<std::vector<uint8_t>>> early_;
-            std::set<vsomeip_v3::session_t> abandoned_;
-            std::set<MethodKey> registered_;
+            mutable std::mutex mutex_;
+            std::map<std::uint32_t, PendingCall> calls_;                  ///< token -> 在途请求（权威）
+            std::map<Session, std::uint32_t> bySession_;                  ///< session -> token（派生索引）
+            std::map<Session, std::vector<std::vector<uint8_t>>> early_;  ///< send 与绑定之间到达的响应
+            std::set<Session> abandoned_;                                 ///< 墓碑：已完成/已放弃的 session
+            std::set<MethodKey> registered_;                              ///< 已注册稳定 handler 的方法
+
             std::uint32_t nextToken_{0};
             bool stopped_{false};
+
+            std::atomic<std::uint64_t> statSubmitted_{0};
+            std::atomic<std::uint64_t> statTimedOut_{0};
+            std::atomic<std::uint64_t> statDroppedLate_{0};
+            std::atomic<std::uint64_t> statDroppedEarly_{0};
         };
 
         // ---------------------------------------------------------------- 内部工具
 
-        void VsomeipRequestDispatcher::Impl::RememberAbandonedLocked(
-            vsomeip_v3::session_t session) noexcept
+        std::uint32_t VsomeipRequestDispatcher::Impl::NextTokenLocked() noexcept
+        {
+            ++nextToken_;
+            if (nextToken_ == 0)
+            {
+                ++nextToken_;
+            }
+            return nextToken_;
+        }
+
+        void VsomeipRequestDispatcher::Impl::RememberAbandonedLocked(Session session) noexcept
         {
             abandoned_.insert(session);
             if (abandoned_.size() > kMaxAbandonedSessions)
@@ -116,15 +137,19 @@ namespace com
             }
         }
 
-        void VsomeipRequestDispatcher::Impl::DropLocked(
-            std::map<std::uint32_t, PendingCall>::iterator it) noexcept
+        void VsomeipRequestDispatcher::Impl::DropLocked(std::uint32_t token) noexcept
         {
-            if (it->second.bound)
+            auto it = calls_.find(token);
+            if (it == calls_.end())
             {
-                sessionToToken_.erase(it->second.session);
-                RememberAbandonedLocked(it->second.session);
+                return;
             }
-            pending_.erase(it);
+            if (it->second.session.has_value())
+            {
+                bySession_.erase(*it->second.session);
+                RememberAbandonedLocked(*it->second.session);
+            }
+            calls_.erase(it);
         }
 
         void VsomeipRequestDispatcher::Impl::EnsureHandlerLocked(
@@ -166,60 +191,46 @@ namespace com
             Submission submission;
             submission.future = promise->get_future();
 
-            if (!app_)
-            {
-                promise->SetError(MakeErrorCode(ComErrc::kNotInitialized));
-                return submission;
-            }
-
-            // 阶段一：占位登记（锁内只登记，不 send）
+            // 阶段一：锁内登记（不 send、不结算）
             std::uint32_t token = 0;
+            std::optional<ComErrc> registerError;
             {
                 std::lock_guard<std::mutex> lock(mutex_);
-                if (!stopped_)
+                if (stopped_ || !app_)
+                {
+                    registerError = ComErrc::kNotInitialized;
+                }
+                else
                 {
                     EnsureHandlerLocked(serviceId, instanceId, methodId);
-                    token = ++nextToken_;
-                    if (token == 0)
-                    {
-                        token = ++nextToken_;
-                    }
-                    PendingCall call;
-                    call.promise = promise;
-                    call.token = token;
-                    pending_.emplace(token, std::move(call));
-                    submission.token = token;
+                    token = NextTokenLocked();
+                    calls_.emplace(token, PendingCall{promise, std::nullopt});
+                    statSubmitted_.fetch_add(1, std::memory_order_relaxed);
                 }
             }
-
-            if (token == 0)
+            if (registerError.has_value())
             {
-                promise->SetError(MakeErrorCode(ComErrc::kNotInitialized));
+                promise->SetError(MakeErrorCode(*registerError));
                 return submission;
             }
+            submission.token = token;
 
-            auto fail = [this, token, &promise, &submission](ComErrc errc)
+            // 阶段二：构造并发送（不持锁）
+            auto dropAndSettle = [this, token, &promise](ComErrc errc)
             {
                 {
                     std::lock_guard<std::mutex> lock(mutex_);
-                    auto it = pending_.find(token);
-                    if (it != pending_.end())
-                    {
-                        DropLocked(it);
-                    }
+                    DropLocked(token);
                 }
                 promise->SetError(MakeErrorCode(errc));
-                submission.token = 0;
             };
 
-            // 阶段二：构造并发送（不持锁，避免发送被串行化、也避免与 io 线程抢锁）
             auto request = vsomeip_v3::runtime::get()->create_request();
             if (!request)
             {
-                fail(ComErrc::kInternalError);
+                dropAndSettle(ComErrc::kInternalError);
                 return submission;
             }
-
             request->set_service(static_cast<vsomeip_v3::service_t>(serviceId));
             request->set_instance(static_cast<vsomeip_v3::instance_t>(instanceId));
             request->set_method(static_cast<vsomeip_v3::method_t>(methodId));
@@ -227,67 +238,54 @@ namespace com
             auto payload = vsomeip_v3::runtime::get()->create_payload();
             if (!payload)
             {
-                fail(ComErrc::kInternalError);
+                dropAndSettle(ComErrc::kInternalError);
                 return submission;
             }
-
             payload->set_data(requestData);
             request->set_payload(payload);
             app_->send(request);
 
-            // 阶段三：绑定真实 session，并检查 send 期间早到的响应
+            // 阶段三：绑定 session，并处理 send 期间早到的响应
             std::vector<uint8_t> earlyPayload;
             bool completedFromEarly = false;
-            bool lostEntry = false;
             {
                 std::lock_guard<std::mutex> lock(mutex_);
-                auto it = pending_.find(token);
-                if (it == pending_.end())
+                auto it = calls_.find(token);
+                if (it == calls_.end())
                 {
-                    // 不应发生（此时尚无 session 可匹配）；保守处理并结算错误
-                    lostEntry = true;
-                    submission.token = 0;
+                    // 已被别人结算（例如 Stop），不要覆盖
+                    return submission;
                 }
-                else
-                {
-                    const vsomeip_v3::session_t session = request->get_session();
-                    it->second.bound = true;
-                    it->second.session = session;
-                    sessionToToken_[session] = token;
 
-                    auto early = early_.find(session);
-                    if (early != early_.end() && !early->second.empty())
+                const Session session = request->get_session();
+                it->second.session = session;
+                bySession_[session] = token;
+
+                auto early = early_.find(session);
+                if (early != early_.end() && !early->second.empty())
+                {
+                    earlyPayload = std::move(early->second.front());
+                    early->second.erase(early->second.begin());
+                    if (early->second.empty())
                     {
-                        earlyPayload = std::move(early->second.front());
-                        early->second.erase(early->second.begin());
-                        if (early->second.empty())
-                        {
-                            early_.erase(early);
-                        }
-                        DropLocked(it);
-                        completedFromEarly = true;
+                        early_.erase(early);
                     }
+                    DropLocked(token);
+                    completedFromEarly = true;
                 }
-            }
-
-            if (lostEntry)
-            {
-                promise->SetError(MakeErrorCode(ComErrc::kInternalError));
-                return submission;
             }
 
             if (completedFromEarly)
             {
                 promise->set_value(std::move(earlyPayload));
             }
-
             return submission;
         }
 
         // ---------------------------------------------------------------- 响应
 
         void VsomeipRequestDispatcher::Impl::OnMessage(
-            vsomeip_v3::session_t session,
+            Session session,
             std::shared_ptr<vsomeip_v3::message> const &message) noexcept
         {
             if (!message)
@@ -298,56 +296,78 @@ namespace com
             PromisePtr promise;
             std::vector<uint8_t> payload;
             bool hasPayload = false;
+            bool dropLate = false;
+            bool dropEarly = false;
 
             {
                 std::lock_guard<std::mutex> lock(mutex_);
 
                 if (abandoned_.find(session) != abandoned_.end())
                 {
-                    return;  // 迟到响应，直接丢弃
+                    dropLate = true;
                 }
-
-                auto index = sessionToToken_.find(session);
-                if (index == sessionToToken_.end())
+                else
                 {
-                    // 早到的响应：先暂存，等 Submit 绑定 session 后交付
-                    if (message->get_message_type() == vsomeip_v3::message_type_e::MT_RESPONSE)
+                    auto index = bySession_.find(session);
+                    if (index == bySession_.end())
                     {
+                        // 早到的响应：send 已发出但 session 还未绑定，先暂存
                         auto respPayload = message->get_payload();
-                        if (respPayload && early_.size() <= kMaxEarlySessions)
+                        if (message->get_message_type() == vsomeip_v3::message_type_e::MT_RESPONSE &&
+                            respPayload && early_.size() <= kMaxEarlySessions)
                         {
                             auto &slot = early_[session];
                             if (slot.size() < kMaxEarlyPerSession)
                             {
-                                slot.emplace_back(
-                                    respPayload->get_data(),
-                                    respPayload->get_data() + respPayload->get_length());
+                                slot.emplace_back(respPayload->get_data(),
+                                                  respPayload->get_data() + respPayload->get_length());
+                            }
+                            else
+                            {
+                                dropEarly = true;
                             }
                         }
+                        else
+                        {
+                            dropEarly = true;
+                        }
                     }
-                    return;
-                }
-
-                auto it = pending_.find(index->second);
-                if (it == pending_.end())
-                {
-                    sessionToToken_.erase(index);
-                    return;
-                }
-
-                promise = it->second.promise;
-                if (message->get_message_type() == vsomeip_v3::message_type_e::MT_RESPONSE)
-                {
-                    auto respPayload = message->get_payload();
-                    if (respPayload)
+                    else
                     {
-                        payload.assign(respPayload->get_data(),
-                                       respPayload->get_data() + respPayload->get_length());
-                        hasPayload = true;
+                        auto it = calls_.find(index->second);
+                        if (it == calls_.end())
+                        {
+                            bySession_.erase(index);
+                            dropEarly = true;
+                        }
+                        else
+                        {
+                            promise = it->second.promise;
+                            if (message->get_message_type() == vsomeip_v3::message_type_e::MT_RESPONSE)
+                            {
+                                auto respPayload = message->get_payload();
+                                if (respPayload)
+                                {
+                                    payload.assign(respPayload->get_data(),
+                                                   respPayload->get_data() + respPayload->get_length());
+                                    hasPayload = true;
+                                }
+                            }
+                            DropLocked(index->second);
+                        }
                     }
                 }
+            }
 
-                DropLocked(it);
+            if (dropLate)
+            {
+                statDroppedLate_.fetch_add(1, std::memory_order_relaxed);
+                return;
+            }
+            if (dropEarly)
+            {
+                statDroppedEarly_.fetch_add(1, std::memory_order_relaxed);
+                return;
             }
 
             // 锁外交付：Promise::SetResult 会同步执行用户续体
@@ -363,19 +383,20 @@ namespace com
 
         // ---------------------------------------------------------------- 超时 / 停止
 
-        bool VsomeipRequestDispatcher::Impl::Abandon(std::uint32_t token) noexcept
+        bool VsomeipRequestDispatcher::Impl::Drop(std::uint32_t token) noexcept
         {
             PromisePtr promise;
             {
                 std::lock_guard<std::mutex> lock(mutex_);
-                auto it = pending_.find(token);
-                if (it == pending_.end())
+                auto it = calls_.find(token);
+                if (it == calls_.end())
                 {
-                    return false;  // 响应已先行取走，让调用方等 future 的自然结果
+                    return false;  // 已被响应或 Stop 结算
                 }
                 promise = it->second.promise;
-                DropLocked(it);
+                DropLocked(token);
             }
+            statTimedOut_.fetch_add(1, std::memory_order_relaxed);
             promise->SetError(MakeErrorCode(ComErrc::kTimeout));
             return true;
         }
@@ -391,9 +412,9 @@ namespace com
                     return;
                 }
                 stopped_ = true;
-                drained.swap(pending_);
+                drained.swap(calls_);
                 registered.swap(registered_);
-                sessionToToken_.clear();
+                bySession_.clear();
                 early_.clear();
             }
 
@@ -415,6 +436,19 @@ namespace com
                         static_cast<vsomeip_v3::method_t>(std::get<2>(key)));
                 }
             }
+        }
+
+        VsomeipRequestDispatcher::Stats VsomeipRequestDispatcher::Impl::GetStats() const noexcept
+        {
+            Stats stats;
+            stats.submitted = statSubmitted_.load(std::memory_order_relaxed);
+            stats.timedOut = statTimedOut_.load(std::memory_order_relaxed);
+            stats.droppedLate = statDroppedLate_.load(std::memory_order_relaxed);
+            stats.droppedEarly = statDroppedEarly_.load(std::memory_order_relaxed);
+
+            std::lock_guard<std::mutex> lock(mutex_);
+            stats.inFlight = calls_.size();
+            return stats;
         }
 
         // ---------------------------------------------------------------- 对外接口
@@ -440,12 +474,10 @@ namespace com
             std::vector<uint8_t> const &requestData,
             Duration timeout) noexcept
         {
-            using ResponseResult = Result<std::vector<uint8_t>>;
-
             auto submission = impl_->Submit(serviceId, instanceId, methodId, requestData);
-            if (submission.token == 0)
+            if (!submission.token.has_value())
             {
-                return submission.future.GetResult();
+                return submission.future.GetResult();  // 立即失败，错误已写入 future
             }
 
             if (submission.future.wait_for(timeout) == ara::core::future_status::ready)
@@ -453,13 +485,11 @@ namespace com
                 return submission.future.GetResult();
             }
 
-            if (impl_->Abandon(submission.token))
+            // 到期：由调用线程摘下自己那条（记墓碑），不覆盖别人已结算的结果
+            if (impl_->Drop(*submission.token))
             {
-                return ResponseResult::FromError(ComErrc::kTimeout);
+                return Result<std::vector<uint8_t>>::FromError(ComErrc::kTimeout);
             }
-
-            // 响应刚好在超时判定与放弃之间到达：等它 settle 后取真实结果
-            submission.future.wait();
             return submission.future.GetResult();
         }
 
@@ -478,6 +508,11 @@ namespace com
             {
                 impl_->Stop();
             }
+        }
+
+        VsomeipRequestDispatcher::Stats VsomeipRequestDispatcher::GetStats() const noexcept
+        {
+            return impl_ ? impl_->GetStats() : Stats{};
         }
 
     } // namespace vsomeip_binding

@@ -15,6 +15,8 @@
 //   cross  - two handles on the same application call the same method concurrently
 //            (must both succeed; vsomeip keeps one handler per (svc,ins,method)
 //            per application, so this is the cross-handle variant of "same")
+//   async  - two asynchronous calls on the same method; com promises no timeout,
+//            so both must simply receive their own response
 //
 // The server answers method 0x0001 with the u32 id it received and method 0x0002
 // with id + 1000, both after 300 ms.
@@ -145,6 +147,17 @@ int RunClient() {
         return 1;
     }
 
+    // C2 回归：同名绑定必须被拒绝（不能静默覆盖已注册的 runtime）
+    if (auto duplicate = com::CreateBindRuntime("vsomeip", "cc-client-dup")) {
+        auto duplicateResult = runtime->RegisterBindRuntime(std::move(duplicate));
+        if (duplicateResult) {
+            std::cout << "[client] duplicate binding accepted (BUG)" << std::endl;
+            return 1;
+        }
+        std::cout << "[client] duplicate binding rejected errc="
+                  << duplicateResult.Error().Value() << std::endl;
+    }
+
     std::atomic<bool> started{false};
     com::FindServiceHandle findHandle{kService, kInstance};
 
@@ -163,6 +176,25 @@ int RunClient() {
                     }
 
                     std::atomic<int> ready{0};
+                    auto report = [&](std::uint16_t method, int callerId, bool ok,
+                                      std::vector<std::uint8_t> const &payload,
+                                      long long errc, long long elapsed) {
+                        std::uint32_t expected = static_cast<std::uint32_t>(callerId) +
+                                                 (method == kMethodEchoOffset ? 1000u : 0u);
+                        std::cout << "[client] " << g_scenario << " m=" << method
+                                  << " id=" << callerId;
+                        if (ok) {
+                            std::uint32_t echo = 0xBEEFu;
+                            GetU32(payload, 0, echo);
+                            std::cout << " OK elapsed=" << elapsed << "ms echo=" << echo
+                                      << (echo == expected ? " MATCH" : " MISMATCH")
+                                      << std::endl;
+                        } else {
+                            std::cout << " FAIL elapsed=" << elapsed
+                                      << "ms errc=" << errc << std::endl;
+                        }
+                    };
+
                     auto run = [&](std::shared_ptr<com::proxy::BindHandle> const &target,
                                    int callerId, std::uint16_t method, bool waitForPair,
                                    int timeoutMs) {
@@ -182,19 +214,27 @@ int RunClient() {
                         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                                            std::chrono::steady_clock::now() - t0).count();
 
-                        std::uint32_t expected = static_cast<std::uint32_t>(callerId) +
-                                                 (method == kMethodEchoOffset ? 1000u : 0u);
-                        std::cout << "[client] " << g_scenario << " m=" << method
-                                  << " id=" << callerId;
                         if (result) {
-                            std::uint32_t echo = 0xBEEFu;
-                            GetU32(result.Value(), 0, echo);
-                            std::cout << " OK elapsed=" << elapsed << "ms echo=" << echo
-                                      << (echo == expected ? " MATCH" : " MISMATCH")
-                                      << std::endl;
+                            report(method, callerId, true, result.Value(), 0, elapsed);
                         } else {
-                            std::cout << " FAIL elapsed=" << elapsed
-                                      << "ms errc=" << result.Error().Value() << std::endl;
+                            report(method, callerId, false, {}, result.Error().Value(), elapsed);
+                        }
+                    };
+
+                    auto runAsync = [&](int callerId) {
+                        std::vector<std::uint8_t> request;
+                        PutU32(request, static_cast<std::uint32_t>(callerId));
+
+                        auto t0 = std::chrono::steady_clock::now();
+                        auto future = handle->SendRequestAsync(kMethodEcho, request);
+                        auto result = future.GetResult();
+                        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                           std::chrono::steady_clock::now() - t0).count();
+
+                        if (result) {
+                            report(kMethodEcho, callerId, true, result.Value(), 0, elapsed);
+                        } else {
+                            report(kMethodEcho, callerId, false, {}, result.Error().Value(), elapsed);
                         }
                     };
 
@@ -229,6 +269,13 @@ int RunClient() {
                             first.join();
                             other.join();
                         }
+                    } else if (g_scenario == "async") {
+                        // 同一方法两条异步并发：com 不承诺超时，只验证异步路径也走
+                        // 同一条在途表、两条各自拿到自己的响应。
+                        std::thread first(runAsync, 1);
+                        std::thread second(runAsync, 2);
+                        first.join();
+                        second.join();
                     } else {
                         std::thread first(run, handle, 1, kMethodEcho, true, 3000);
                         std::thread second(run, handle, 2, kMethodEcho, true, 3000);

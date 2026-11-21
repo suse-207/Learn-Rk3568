@@ -84,22 +84,25 @@ namespace com
             MethodIdentifier methodId,
             std::vector<uint8_t> const &requestData) noexcept
         {
-            if (!IsValid())
+            auto errorFuture = [](ComErrc errc)
             {
                 auto promise = std::make_shared<ara::core::Promise<std::vector<uint8_t>>>();
                 auto future = promise->get_future();
-                promise->SetError(MakeErrorCode(ComErrc::kInvalidHandle));
+                promise->SetError(MakeErrorCode(errc));
                 return future;
+            };
+
+            if (!IsValid())
+            {
+                return errorFuture(ComErrc::kInvalidHandle);
             }
 
             if (!dispatcher_)
             {
-                auto promise = std::make_shared<ara::core::Promise<std::vector<uint8_t>>>();
-                auto future = promise->get_future();
-                promise->SetError(MakeErrorCode(ComErrc::kNotInitialized));
-                return future;
+                return errorFuture(ComErrc::kNotInitialized);
             }
 
+            // 不承诺超时：由 dispatcher 在响应到达或 Stop 时结算
             return dispatcher_->SendAsync(serviceId_, instanceId_, methodId, requestData);
         }
 

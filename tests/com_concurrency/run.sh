@@ -1,14 +1,24 @@
 #!/usr/bin/env bash
 # Regression test for concurrent same-method requests in the vsomeip binding.
 #
-# Usage: ./run.sh            # build into ./build and check all four scenarios
+# Usage: ./run.sh                    # build into ./build and check every scenario
 #        VSOMEIP_PREFIX=... ./run.sh
+#        TSAN=1 ./run.sh             # build/run under ThreadSanitizer (并发改动必须过这一档)
+#        ASAN=1 ./run.sh             # build/run under AddressSanitizer + UBSan
 set -uo pipefail
 
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 DIR=$(cd "$(dirname "$0")" && pwd)
 BUILD="$DIR/build"
 CXX=${CXX:-g++}
+
+# Sanitizer 档位：同一份测试代码，换一种检测手段
+SAN_FLAGS=""
+if [ "${TSAN:-0}" = "1" ]; then
+    SAN_FLAGS="-fsanitize=thread -fno-omit-frame-pointer"
+elif [ "${ASAN:-0}" = "1" ]; then
+    SAN_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer"
+fi
 
 # Locate a vsomeip build/install: library first, then its headers.
 PREFIX=${VSOMEIP_PREFIX:-}
@@ -34,7 +44,7 @@ INCDIR="$PREFIX/include"
 
 mkdir -p "$BUILD"
 echo "== building (vsomeip prefix: $PREFIX)"
-"$CXX" -std=c++17 -O1 -g -pthread -DCOM_WITH_VSOMEIP \
+"$CXX" -std=c++17 -O1 -g -pthread -DCOM_WITH_VSOMEIP $SAN_FLAGS \
     -I"$ROOT/src/com/include" \
     -I"$ROOT/src/common/ara-core/include" \
     -I"$INCDIR" \
@@ -51,6 +61,13 @@ echo "== building (vsomeip prefix: $PREFIX)"
     -L"$LIBDIR" -lvsomeip3 -Wl,-rpath,"$LIBDIR" || exit 1
 
 export VSOMEIP_CONFIGURATION="$DIR/config.json"
+if [ -n "$SAN_FLAGS" ]; then
+    echo "== sanitizer: $SAN_FLAGS"
+    export TSAN_OPTIONS="${TSAN_OPTIONS:-halt_on_error=0 log_path=$BUILD/tsan}"
+    export ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=0 log_path=$BUILD/asan}"
+    export UBSAN_OPTIONS="${UBSAN_OPTIONS:-print_stacktrace=1 log_path=$BUILD/ubsan}"
+    rm -f "$BUILD"/tsan.* "$BUILD"/asan.* "$BUILD"/ubsan.* 2>/dev/null || true
+fi
 ROUTING_SOCKET="/tmp/vsomeip-$(id -u)"
 FAILED=0
 
@@ -73,7 +90,7 @@ check() {
     fi
 }
 
-for scenario in seq diff same steal cross; do
+for scenario in seq diff same steal cross async; do
     echo "== scenario: $scenario"
     stop_all
     rm -f "$ROUTING_SOCKET"
