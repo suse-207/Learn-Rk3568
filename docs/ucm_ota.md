@@ -79,7 +79,7 @@ Update Agent(ucm_client)                        目标 UCM(ucm_service)
 8. ProcessSwPackage(id)  ────SOME-IP────►  解包 → 验签 → 版本/依赖检查
                                            → 写 payload.img → SHA256
                                            → OtaManager.start_update
-                                           
+                                         
 9.（服务端后台）OtaManager:
    Checking → Downloading(拷贝staging) → Verifying(SHA256)
    → Installing(写非活跃槽) → ReadyToSwitch
@@ -94,37 +94,37 @@ Update Agent(ucm_client)                        目标 UCM(ucm_service)
 
 ### 4.1 OTA 编排层（`src/ota/`）
 
-| 文件 | 类/职责 |
-|---|---|
-| `ota_manager.h/.cpp` | `OtaManager`：升级状态机 + 异步 worker。`start_update(path, digest, version)` / `switch_and_reboot()` / `report_boot_result()` / `rollback()` / `progress()` |
-| `ota_types.h/.cpp` | `State` 枚举（Idle/Checking/Downloading/Verifying/Installing/ReadyToSwitch/Rebooting/BootVerify/Success/Failed/Rollback）+ `Progress` |
-| `slot_manager.h/.cpp` | `SlotManager`（抽象）+ `MockSlotManager`（A/B 槽位，目录模拟） |
-| `boot_controller.h/.cpp` | `BootController`（抽象）+ `MockBootController`（boot 槽选择/重启/结果记录） |
-| `version_manager.h/.cpp` | `VersionManager`：当前/目标版本 + 升级历史 |
-| `verify_strategy.h/.cpp` | `VerifyStrategy`（SHA256 摘要计算/校验）+ `make_verify_strategy` 工厂 |
+| 文件                       | 类/职责                                                                                                                                                                  |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ota_manager.h/.cpp`     | `OtaManager`：升级状态机 + 异步 worker。`start_update(path, digest, version)` / `switch_and_reboot()` / `report_boot_result()` / `rollback()` / `progress()` |
+| `ota_types.h/.cpp`       | `State` 枚举（Idle/Checking/Downloading/Verifying/Installing/ReadyToSwitch/Rebooting/BootVerify/Success/Failed/Rollback）+ `Progress`                                |
+| `slot_manager.h/.cpp`    | `SlotManager`（抽象）+ `MockSlotManager`（A/B 槽位，目录模拟）                                                                                                       |
+| `boot_controller.h/.cpp` | `BootController`（抽象）+ `MockBootController`（boot 槽选择/重启/结果记录）                                                                                          |
+| `version_manager.h/.cpp` | `VersionManager`：当前/目标版本 + 升级历史                                                                                                                             |
+| `verify_strategy.h/.cpp` | `VerifyStrategy`（SHA256 摘要计算/校验）+ `make_verify_strategy` 工厂                                                                                                |
 
 ### 4.2 UCM 服务层（`src/ota/`）
 
-| 文件 | 职责 |
-|---|---|
-| `ucm_types.h` | `UcmErrc` 错误码枚举 + 数据结构（`SwPackageInfo`/`SwClusterInfo`/`HistoryEntry`/`ProgressInfo`） |
-| `ucm_service.h/.cpp` | `UcmService`：目标 UCM，17 个方法，接收传输字节、处理包、暴露生命周期与查询 |
-| `package_manifest.h/.cpp` | `PackageManifest` 结构 + `BuildPackage`/`UnpackPackage` + `HmacSha256Hex`（OpenSSL HMAC） |
+| 文件                        | 职责                                                                                                       |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `ucm_types.h`             | `UcmErrc` 错误码枚举 + 数据结构（`SwPackageInfo`/`SwClusterInfo`/`HistoryEntry`/`ProgressInfo`） |
+| `ucm_service.h/.cpp`      | `UcmService`：目标 UCM，17 个方法，接收传输字节、处理包、暴露生命周期与查询                              |
+| `package_manifest.h/.cpp` | `PackageManifest` 结构 + `BuildPackage`/`UnpackPackage` + `HmacSha256Hex`（OpenSSL HMAC）          |
 
 ### 4.3 Update Agent（`src/ota/`）
 
-| 文件 | 职责 |
-|---|---|
-| `http_downloader.h/.cpp` | `HttpDownloader`：libcurl 下载（`Download(url, path, error)`） |
-| `update_agent.h/.cpp` | `UpdateAgent`：HTTP 下载 → 打包签名 → 分块 TransferData → ProcessSwPackage |
+| 文件                       | 职责                                                                            |
+| -------------------------- | ------------------------------------------------------------------------------- |
+| `http_downloader.h/.cpp` | `HttpDownloader`：libcurl 下载（`Download(url, path, error)`）              |
+| `update_agent.h/.cpp`    | `UpdateAgent`：HTTP 下载 → 打包签名 → 分块 TransferData → ProcessSwPackage |
 
 ### 4.4 SOME-IP 传输适配层（`src/ucm/`）
 
-| 文件 | 职责 |
-|---|---|
-| `ucm_protocol.h` | 17 个 SOME-IP method ID + 二进制序列化工具（header-only） |
+| 文件                            | 职责                                                                        |
+| ------------------------------- | --------------------------------------------------------------------------- |
+| `ucm_protocol.h`              | 17 个 SOME-IP method ID + 二进制序列化工具（header-only）                   |
 | `ucm_service_skeleton.h/.cpp` | `UcmServiceSkeleton`：把 `UcmService` 挂到 com 骨架，注册 17 个 handler |
-| `ucm_proxy.h/.cpp` | `UcmProxy`：客户端代理，序列化调用 `SendRequest` |
+| `ucm_proxy.h/.cpp`            | `UcmProxy`：客户端代理，序列化调用 `SendRequest`                        |
 
 ### 4.5 com 层（`src/com/`）
 
@@ -134,25 +134,25 @@ Update Agent(ucm_client)                        目标 UCM(ucm_service)
 
 ## 5. UCM `PackageManagement` 17 方法接口
 
-| # | 方法 | 请求 | 返回 | 映射到 |
-|---|---|---|---|---|
-| 1 | `TransferStart` | size | id + blockSize | 建会话/建文件 |
-| 2 | `TransferData` | id + block + counter | errc | 收字节写 .zip |
-| 3 | `TransferExit` | id | errc | 结束传输 |
-| 4 | `ProcessSwPackage` | id | errc | 解包/验签/检查 → OtaManager |
-| 5 | `DeleteTransfer` | id | errc | 删传输会话 |
-| 6 | `Activate` | — | errc | `switch_and_reboot` |
-| 7 | `Finish` | — | errc | `report_boot_result(true)` |
-| 8 | `Cancel` | id | errc | 丢弃传输 |
-| 9 | `Rollback` | — | errc | `rollback` |
-| 10 | `RevertProcessedSwPackages` | — | errc | 占位（demo 空操作） |
-| 11 | `GetSwPackages` | — | 包列表 | `VersionManager` |
-| 12 | `GetSwClusterInfo` | — | 簇列表 | `VersionManager` |
-| 13 | `GetSwClusterChangeInfo` | — | 变更列表 | `VersionManager` |
-| 14 | `GetSwClusterDescription` | name | 描述 | 占位 |
-| 15 | `GetSwProcessProgress` | id | 进度 | `OtaManager::progress` |
-| 16 | `GetHistory` | — | 历史 | `VersionManager::history` |
-| 17 | `GetId` | — | id | UCM 实例标识 |
+| #  | 方法                          | 请求                 | 返回           | 映射到                       |
+| -- | ----------------------------- | -------------------- | -------------- | ---------------------------- |
+| 1  | `TransferStart`             | size                 | id + blockSize | 建会话/建文件                |
+| 2  | `TransferData`              | id + block + counter | errc           | 收字节写 .zip                |
+| 3  | `TransferExit`              | id                   | errc           | 结束传输                     |
+| 4  | `ProcessSwPackage`          | id                   | errc           | 解包/验签/检查 → OtaManager |
+| 5  | `DeleteTransfer`            | id                   | errc           | 删传输会话                   |
+| 6  | `Activate`                  | —                   | errc           | `switch_and_reboot`        |
+| 7  | `Finish`                    | —                   | errc           | `report_boot_result(true)` |
+| 8  | `Cancel`                    | id                   | errc           | 丢弃传输                     |
+| 9  | `Rollback`                  | —                   | errc           | `rollback`                 |
+| 10 | `RevertProcessedSwPackages` | —                   | errc           | 占位（demo 空操作）          |
+| 11 | `GetSwPackages`             | —                   | 包列表         | `VersionManager`           |
+| 12 | `GetSwClusterInfo`          | —                   | 簇列表         | `VersionManager`           |
+| 13 | `GetSwClusterChangeInfo`    | —                   | 变更列表       | `VersionManager`           |
+| 14 | `GetSwClusterDescription`   | name                 | 描述           | 占位                         |
+| 15 | `GetSwProcessProgress`      | id                   | 进度           | `OtaManager::progress`     |
+| 16 | `GetHistory`                | —                   | 历史           | `VersionManager::history`  |
+| 17 | `GetId`                     | —                   | id             | UCM 实例标识                 |
 
 SOME-IP method ID 分配：`0x0001` ~ `0x0011`（见 `ucm_protocol.h`）。
 
@@ -162,32 +162,32 @@ SOME-IP method ID 分配：`0x0001` ~ `0x0011`（见 `ucm_protocol.h`）。
 
 单一枚举，枚举值即 SOME-IP 线上状态码（对齐 CAPI `UCMErrorDomainErrc`）：
 
-| 值 | 名称 | 触发场景 |
-|---|---|---|
-| 0 | `kSuccess` | 成功 |
-| 1 | `kInvalidTransferId` | transfer id 不存在 |
-| 2 | `kInvalidPackageManifest` | manifest 缺失/解析失败 |
-| 3 | `kAuthenticationFailed` | HMAC 验签失败 |
-| 4 | `kInsufficientMemory` | 磁盘不足/文件失败 |
-| 5 | `kOperationNotPermitted` | 状态不允许 |
-| 6 | `kServiceBusy` | OTA 忙（重复 start_update） |
-| 7 | `kIncompatibleDelta` | 预留 |
-| 8 | `kProcessedSoftwarePackageInconsistent` | 预留 |
-| 9 | `kProcessSwPackageCancelled` | 预留 |
-| 10 | `kSoftwareClusterMissing` | 预留 |
-| 11 | `kIncompatiblePackageVersion` | 目标版本 == 当前版本 |
-| 12 | `kMissingDependencies` | 依赖不满足 |
-| 13 | `kOldVersion` | 预留 |
-| 14 | `kPackageInconsistent` | 预留 |
-| 15 | `kIncorrectBlock` | 块序号错误 |
-| 16 | `kIncorrectBlockSize` | 预留 |
-| 17 | `kBlockInconsistent` | 预留 |
-| 18 | `kIncorrectSize` | 传输字节数超限 |
-| 19 | `kInsufficientData` | 退出时字节不足 |
-| 20 | `kNothingToRollback` | 预留 |
-| 21 | `kNotAbleToRollback` | 预留 |
-| 22 | `kNothingToRevert` | 预留 |
-| 23 | `kNotAbleToRevertPackages` | 预留 |
+| 值 | 名称                                      | 触发场景                    |
+| -- | ----------------------------------------- | --------------------------- |
+| 0  | `kSuccess`                              | 成功                        |
+| 1  | `kInvalidTransferId`                    | transfer id 不存在          |
+| 2  | `kInvalidPackageManifest`               | manifest 缺失/解析失败      |
+| 3  | `kAuthenticationFailed`                 | HMAC 验签失败               |
+| 4  | `kInsufficientMemory`                   | 磁盘不足/文件失败           |
+| 5  | `kOperationNotPermitted`                | 状态不允许                  |
+| 6  | `kServiceBusy`                          | OTA 忙（重复 start_update） |
+| 7  | `kIncompatibleDelta`                    | 预留                        |
+| 8  | `kProcessedSoftwarePackageInconsistent` | 预留                        |
+| 9  | `kProcessSwPackageCancelled`            | 预留                        |
+| 10 | `kSoftwareClusterMissing`               | 预留                        |
+| 11 | `kIncompatiblePackageVersion`           | 目标版本 == 当前版本        |
+| 12 | `kMissingDependencies`                  | 依赖不满足                  |
+| 13 | `kOldVersion`                           | 预留                        |
+| 14 | `kPackageInconsistent`                  | 预留                        |
+| 15 | `kIncorrectBlock`                       | 块序号错误                  |
+| 16 | `kIncorrectBlockSize`                   | 预留                        |
+| 17 | `kBlockInconsistent`                    | 预留                        |
+| 18 | `kIncorrectSize`                        | 传输字节数超限              |
+| 19 | `kInsufficientData`                     | 退出时字节不足              |
+| 20 | `kNothingToRollback`                    | 预留                        |
+| 21 | `kNotAbleToRollback`                    | 预留                        |
+| 22 | `kNothingToRevert`                      | 预留                        |
+| 23 | `kNotAbleToRevertPackages`              | 预留                        |
 
 > 「预留」的错误码枚举已定义、线上可携带，但 demo 尚未触发（等完整状态机/manifest 校验落地）。
 
@@ -233,15 +233,15 @@ SOME-IP method ID 分配：`0x0001` ~ `0x0011`（见 `ucm_protocol.h`）。
 
 ## 9. 与 CAPI `ara::ucm` 的对应关系
 
-| CAPI 组件 | 本 demo 实现 |
-|---|---|
-| `package_management` 服务接口（SOME-IP） | `ucm_service_skeleton` / `ucm_proxy` + `ucm_protocol` |
-| `TransferInstance`（收字节写 .zip、磁盘检查、持久化） | `UcmService::TransferStart/Data/Exit` |
-| `ProcessSwPackage`（校验 manifest/签名/版本/依赖） | `UcmService::ProcessSwPackage` |
-| `UCMErrorDomainErrc` | `UcmErrc` |
-| `data_transfer`（Update Agent 推字节侧） | `UpdateAgent` + `UcmProxy` |
-| `Activate/Finish/Rollback` | `OtaManager::switch_and_reboot/report_boot_result/rollback` |
-| manifest 解析 + 验签（`software_package.cpp`/`signature_check.cpp`） | `package_manifest` + HMAC |
+| CAPI 组件                                                                | 本 demo 实现                                                  |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------- |
+| `package_management` 服务接口（SOME-IP）                               | `ucm_service_skeleton` / `ucm_proxy` + `ucm_protocol`   |
+| `TransferInstance`（收字节写 .zip、磁盘检查、持久化）                  | `UcmService::TransferStart/Data/Exit`                       |
+| `ProcessSwPackage`（校验 manifest/签名/版本/依赖）                     | `UcmService::ProcessSwPackage`                              |
+| `UCMErrorDomainErrc`                                                   | `UcmErrc`                                                   |
+| `data_transfer`（Update Agent 推字节侧）                               | `UpdateAgent` + `UcmProxy`                                |
+| `Activate/Finish/Rollback`                                             | `OtaManager::switch_and_reboot/report_boot_result/rollback` |
+| manifest 解析 + 验签（`software_package.cpp`/`signature_check.cpp`） | `package_manifest` + HMAC                                   |
 
 ---
 
@@ -285,20 +285,20 @@ python -m http.server 8000
 
 ## 11. Demo 简化与生产差异（诚实清单）
 
-| 项 | demo | 生产（CAPI/AP AUTOSAR） |
-|---|---|---|
-| 软件包容器 | 二进制 bundle | `.zip`（zlib 解压，含多文件） |
-| manifest 格式 | 二进制 blob | JSON（`rjson`） |
-| 签名 | HMAC-SHA256 + 硬编码密钥 | 证书链 + 验签（`SignatureCheck`） |
-| 持久化 | 每会话一个 `.meta` 文件 | KVS/persistency 库 |
-| 依赖检查 | 「dep == 当前版本」朴素逻辑 | 依赖图 + 版本解析 |
-| 断点续传 | 服务端 load-on-demand | 客户端也持久化块号并重发 |
-| 序列化 | 手写二进制 | AUTOSAR 生成的 typed proxy/skeleton |
-| campaign/多 ECU | 无 | `vpkgmgr` FSM + RolloutStep 多 ECU 协同 |
-| 进程模型 | 两个 demo 进程 | AP 执行管理（EM）+ 状态管理（SM）集成 |
+| 项              | demo                        | 生产（CAPI/AP AUTOSAR）                   |
+| --------------- | --------------------------- | ----------------------------------------- |
+| 软件包容器      | 二进制 bundle               | `.zip`（zlib 解压，含多文件）           |
+| manifest 格式   | 二进制 blob                 | JSON（`rjson`）                         |
+| 签名            | HMAC-SHA256 + 硬编码密钥    | 证书链 + 验签（`SignatureCheck`）       |
+| 持久化          | 每会话一个 `.meta` 文件   | KVS/persistency 库                        |
+| 依赖检查        | 「dep == 当前版本」朴素逻辑 | 依赖图 + 版本解析                         |
+| 断点续传        | 服务端 load-on-demand       | 客户端也持久化块号并重发                  |
+| 序列化          | 手写二进制                  | AUTOSAR 生成的 typed proxy/skeleton       |
+| campaign/多 ECU | 无                          | `vpkgmgr` FSM + RolloutStep 多 ECU 协同 |
+| 进程模型        | 两个 demo 进程              | AP 执行管理（EM）+ 状态管理（SM）集成     |
 
 ---
 
-## 12. 面试要点（一句话口径）
+## 12. 要点（一句话口径）
 
 > 我按 AP AUTOSAR 的 UCM 模型实现 OTA：Update Agent 用 libcurl 从云 HTTPS 拉包、算 HMAC 签名并打包；通过 SOME-IP 的 `TransferStart/TransferData/TransferExit` 把包分块推给目标 UCM，UCM 收字节写 `.zip`（带磁盘检查 + 断点续传持久化）；`ProcessSwPackage` 解包验签、检查版本/依赖、算 SHA256，交给 OtaManager 走「校验 → 装非活跃槽 → A/B 切换 → 失败回滚」。接口对齐了 `ara::ucm` 的 17 方法 + 单一错误域，传输层同时支持进程内直调和 SOME-IP。
